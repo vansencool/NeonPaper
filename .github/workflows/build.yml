@@ -1,0 +1,140 @@
+name: Build
+
+on:
+  push:
+    branches: [ "1.21.1" ]
+
+jobs:
+  build:
+    if: "!contains(github.event.head_commit.message, '[skip]')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: gradle/wrapper-validation-action@v1
+
+      - name: Set up JDK
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: 21
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          cache: gradle
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "action@github.com" 
+          git config --global user.name "Github Action"
+
+      - name: Apply patches
+        run: ./gradlew -Dorg.gradle.jvmargs="-Dgraal.CompilerConfiguration=enterprise -Dgraal.UsePriorityInlining=true -Dgraal.Vectorization=true -Dgraal.OptDuplication=true --add-modules jdk.incubator.vector" applyPatches --stacktrace --no-daemon
+
+      - name: Create MojmapPaperclipJar
+        run: ./gradlew -Dorg.gradle.jvmargs="-Dgraal.CompilerConfiguration=enterprise -Dgraal.UsePriorityInlining=true -Dgraal.Vectorization=true -Dgraal.OptDuplication=true --add-modules jdk.incubator.vector" createMojmapPaperclipJar --stacktrace --no-daemon
+
+      - name: Rename Paperclip Jar
+        run: mv build/libs/neonpaper-paperclip-1.21.1-R0.1-SNAPSHOT-mojmap.jar ./neonpaper-1.21.1.jar
+
+      - name: Get Previous Release Commit
+        id: get_prev_release
+        run: |
+          PREV_COMMIT=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 --jq '.object.sha' || echo "Failed to retrieve previous release commit")
+          echo "prev_commit=${PREV_COMMIT}" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Changelog
+        id: generate_changelog
+        run: |
+          set -e
+          if [ -n "${{ steps.get_prev_release.outputs.prev_commit }}" ]; then
+            RANGE="${{ steps.get_prev_release.outputs.prev_commit }}..HEAD"
+          else
+            echo "No previous release commit found. Exiting..."
+            exit 1
+          fi
+          echo "Using commit range: $RANGE"
+
+          echo "DEBUG: Raw commit log output:"
+          git log $RANGE --pretty=format:"%s|%an|%h%n" || true
+
+          BREAKING=""
+          FEATURE=""
+          ENHANCEMENT=""
+          BUG=""
+          OTHER=""
+
+          while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              message=$(echo "$line" | cut -d'|' -f1)
+              author=$(echo "$line" | cut -d'|' -f2)
+              commit=$(echo "$line" | cut -d'|' -f3)
+              echo "DEBUG: processing: message='$message', author='$author', commit='$commit'"
+              msg=$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+              lower_msg=$(echo "$msg" | tr '[:upper:]' '[:lower:]')
+              case "$lower_msg" in
+                *breaking-change*|*breaking:*)
+                  echo "DEBUG: Found breaking"
+                  BREAKING+="- ${msg} by @${author} (commit ${commit})"$'\n'
+                  ;;
+                *feature*|*feat*|*add*)
+                  echo "DEBUG: Found feature"
+                  FEATURE+="- ${msg} by @${author} (commit ${commit})"$'\n'
+                  ;;
+                *improve*|*enhancement*|*enhance*)
+                  echo "DEBUG: Found improvement"
+                  ENHANCEMENT+="- ${msg} by @${author} (commit ${commit})"$'\n'
+                  ;;
+                *fix*|*bug*)
+                  echo "DEBUG: Found bug fix"
+                  BUG+="- ${msg} by @${author} (commit ${commit})"$'\n'
+                  ;;
+                *)
+                  echo "DEBUG: Found other"
+                  OTHER+="- ${msg} by @${author} (commit ${commit})"$'\n'
+                  ;;
+              esac
+          done < <(git log $RANGE --pretty=format:"%s|%an|%h%n")
+
+          echo "DEBUG: Categories after processing:"
+          echo "DEBUG: BREAKING: [$BREAKING]"
+          echo "DEBUG: FEATURE: [$FEATURE]"
+          echo "DEBUG: ENHANCEMENT: [$ENHANCEMENT]"
+          echo "DEBUG: BUG: [$BUG]"
+          echo "DEBUG: OTHER: [$OTHER]"
+
+          OUTPUT="## What's Changed"
+          [ -n "$BREAKING" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Breaking Changes 🛠"$'\n'"${BREAKING}"
+          [ -n "$FEATURE" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Exciting New Features 🎉"$'\n'"${FEATURE}"
+          [ -n "$ENHANCEMENT" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Improved things 🔨"$'\n'"${ENHANCEMENT}"
+          [ -n "$BUG" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Bug fixes 🐛"$'\n'"${BUG}"
+          [ -n "$OTHER" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Other Changes 🔄"$'\n'"${OTHER}"
+
+          echo -e "$OUTPUT" > CHANGELOG.md
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Delete previous release and tag if exists
+        run: |
+          set +e
+          gh release delete 1.21.1 --yes
+          git tag -d 1.21.1
+          git push --delete origin 1.21.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release NeonPaper
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 1.21.1
+          name: "NeonPaper 1.21.1"
+          body: "${{ steps.generate_changelog.outputs.CHANGELOG }}"
+          draft: false
+          prerelease: false
+          files: neonpaper-1.21.1.jar
+          make_latest: true
