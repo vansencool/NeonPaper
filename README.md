@@ -1,41 +1,42 @@
-# ForkTest - A Paper fork, using paperweight
+# NeonPaper
 
-This is an example project, showcasing how to setup a fork of Paper (or any other fork using paperweight), using paperweight.
+This is a custom Paper fork made for one thing: **regenerating massive regions extremely fast.**  
+It uses a new method of regeneration by directly replacing full chunks instead of setting blocks one by one.
 
-The files of most interest are
-- build.gradle.kts
-- settings.gradle.kts
-- gradle.properties
+## Why not a plugin?
 
-When updating upstream, be sure to keep the dependencies noted in `build.gradle.kts` in sync with upstream.
-It's also a good idea to use the same version of the Gradle wrapper as upstream.
+Plugins *can't necessarily* use this method because of how Minecraft is built.
 
-## Tasks
+However, plugins *can* change blocks one by one, but this is **extremely slow** (even when using low-level methods).  
+When a plugin changes blocks, it triggers a long chain of code in Minecraft.  
+For example, regenerating 30 million blocks through a plugin means:
 
-```
-Paperweight tasks
------------------
-applyApiPatches
-applyPatches
-applyServerPatches
-cleanCache - Delete the project setup cache and task outputs.
-createMojmapBundlerJar - Build a runnable bundler jar
-createMojmapPaperclipJar - Build a runnable paperclip jar
-createReobfBundlerJar - Build a runnable bundler jar
-createReobfPaperclipJar - Build a runnable paperclip jar
-generateDevelopmentBundle
-rebuildApiPatches
-rebuildPatches
-rebuildServerPatches
-reobfJar - Re-obfuscate the built jar to obf mappings
-runDev - Spin up a non-relocated Mojang-mapped test server
-runReobf - Spin up a test server from the reobfJar output jar
-runShadow - Spin up a test server from the shadowJar archiveFile
-```
+- **60 million** array accesses
+- Around **400 million** method calls (due to internal chaining)
+- Constant creation and modification of integers, longs, and objects
+- *Much more*
 
-## Branches
+Plugins simply **can’t skip that chain. This fork does.**
 
-Each branch of this project represents an example:
+## What makes it fast?
 
- - [`main` is the standard example](https://github.com/PaperMC/paperweight-examples/tree/main)
- - [`submodules` shows how paperweight can be applied on a fork using the more traditional git submodule system](https://github.com/PaperMC/paperweight-examples/tree/submodules)
+This fork introduces a new way to regenerate areas by changing the chunk's data directly (replacing entire sections will be supported very soon).  
+That means almost *no overhead*, no chains of logic, and no per-block cost.  
+Because of this, it can regenerate up to **1 billion blocks in under 200 milliseconds.**
+
+## World Regeneration Support
+
+World regeneration support will come soon, but it is *not a priority*.
+
+Because of how this system works, world regeneration can also run at extreme speeds.  
+It can regenerate over **40,000 chunks in just 500 milliseconds**, which is around **2.6 BILLION blocks.**
+
+## How to Use
+
+Usage is coming soon.
+
+## Disclaimer
+
+The numbers listed above are only examples of what is possible.  
+To regenerate a billion or more blocks, the server must be able to load that many chunks at once.  
+For example, regenerating one billion blocks requires loading around **20,000 chunks** at the same time.
