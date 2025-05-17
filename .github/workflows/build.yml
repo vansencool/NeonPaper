@@ -41,7 +41,7 @@ jobs:
       - name: Get Previous Release Commit
         id: get_prev_release
         run: |
-          PREV_COMMIT=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 --jq '.object.sha' || echo "Failed to retrieve previous release commit")
+          PREV_COMMIT=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 --jq '.object.sha' 2>/dev/null || gh api /repos/vansencool/NeonPaper/commits --jq '.[0].sha')
           echo "prev_commit=${PREV_COMMIT}" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

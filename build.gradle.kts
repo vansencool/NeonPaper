@@ -47,6 +47,7 @@ subprojects {
     repositories {
         mavenCentral()
         maven(paperMavenPublicUrl)
+        maven("https://jitpack.io") // NeonPaper
     }
 }
 
