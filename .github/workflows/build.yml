@@ -15,8 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gradle/wrapper-validation-action@v1
-
       - name: Set up JDK
         uses: graalvm/setup-graalvm@v1
         with:
@@ -41,8 +39,23 @@ jobs:
       - name: Get Previous Release Commit
         id: get_prev_release
         run: |
-          PREV_COMMIT=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 --jq '.object.sha' 2>/dev/null || gh api /repos/vansencool/NeonPaper/commits --jq '.[0].sha')
-          echo "prev_commit=${PREV_COMMIT}" >> $GITHUB_OUTPUT
+          set -e
+          
+          PREV_COMMIT_JSON=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 2>/dev/null || true)
+          if echo "$PREV_COMMIT_JSON" | grep -q '"object"'; then
+            PREV_COMMIT=$(echo "$PREV_COMMIT_JSON" | jq -r '.object.sha')
+            echo "Tag found. Commit: $PREV_COMMIT"
+          else
+            echo "Tag not found, falling back to latest commit"
+            PREV_COMMIT=$(gh api /repos/vansencool/NeonPaper/commits --jq '.[1].sha')
+          fi
+          
+          if [ -z "$PREV_COMMIT" ]; then
+            echo "No previous release commit found. Exiting..."
+            exit 1
+          fi
+          
+          echo "prev_commit=$PREV_COMMIT" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,6 +63,7 @@ jobs:
         id: generate_changelog
         run: |
           set -e
+          echo "DEBUG: Previous commit: ${{ steps.get_prev_release.outputs.prev_commit }}"
           if [ -n "${{ steps.get_prev_release.outputs.prev_commit }}" ]; then
             RANGE="${{ steps.get_prev_release.outputs.prev_commit }}..HEAD"
           else
@@ -121,10 +135,10 @@ jobs:
 
       - name: Delete previous release and tag if exists
         run: |
-          set +e
-          gh release delete 1.21.1 --yes
-          git tag -d 1.21.1
-          git push --delete origin 1.21.1
+          set -e
+          gh release delete 1.21.1 --yes || true
+          git tag -d 1.21.1 || true
+          git push --delete origin 1.21.1 || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
