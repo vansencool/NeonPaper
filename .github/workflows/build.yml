@@ -41,7 +41,7 @@ jobs:
         run: |
           set -e
           
-          PREV_COMMIT_JSON=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/1.21.1 2>/dev/null || true)
+          PREV_COMMIT_JSON=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/ver-1.21.1 2>/dev/null || true)
           if echo "$PREV_COMMIT_JSON" | grep -q '"object"'; then
             PREV_COMMIT=$(echo "$PREV_COMMIT_JSON" | jq -r '.object.sha')
             echo "Tag found. Commit: $PREV_COMMIT"
@@ -136,16 +136,16 @@ jobs:
       - name: Delete previous release and tag if exists
         run: |
           set -e
-          gh release delete 1.21.1 --yes || true
-          git tag -d 1.21.1 || true
-          git push --delete origin 1.21.1 || true
+          gh release delete ver-1.21.1 --yes || true
+          git tag -d ver-1.21.1 || true
+          git push --delete origin ver-1.21.1 || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release NeonPaper
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: 1.21.1
+          tag_name: ver-1.21.1
           name: "NeonPaper 1.21.1"
           body: "${{ steps.generate_changelog.outputs.CHANGELOG }}"
           draft: false
