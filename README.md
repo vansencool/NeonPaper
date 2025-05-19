@@ -3,13 +3,40 @@
 This is a custom Paper fork made for one thing: **regenerating massive regions extremely fast.**
 It uses a new method of regeneration by directly replacing full chunks instead of setting blocks one by one.
 
+---
+
+## Benchmarks
+
+NeonPaper was tested on a **Ryzen 7 3700X**, regenerating **hundreds of millions of blocks** with **almost no impact** on server performance.
+These tests were repeated multiple times, including full regeneration cycles.
+
+Actual **MSPT impact** may vary depending on the number of players online (due to chunk priority).
+
+This test regenerated around **164 million blocks** in one go.
+It completed in just **\~15ms**, with **no performance hit**.
+
+![Benchmark 164 Million Blocks](images/1.png)
+
+This one regenerated nearly **640 million blocks**.
+Even with this huge volume, **MSPT remained stable**.
+
+![Benchmark 640 Million Blocks](images/2.png)
+
+The benchmark involved:
+
+* Setting chunks to air
+* Regenerating them
+* Repeating this cycle **5 times**
+
+Through all of this, **MSPT barely changed**. Any minor fluctuations came from mob spawning and suffocation after the chunks were set to air, not from the regeneration itself.
+
 ## Why not a plugin?
 
 Plugins *can't necessarily* use this method because of how Minecraft is built.
 
 However, plugins *can* change blocks one by one, but this is **extremely slow** (even when using low-level methods).  
 When a plugin changes blocks, it triggers a long chain of code.
-For example, regenerating 30 million blocks through a plugin might involve:
+For example, regenerating 30 million blocks through a plugin (low level) might involve:
 
 - **Around 60 million** array accesses
 - **Hundreds of millions** of method calls (due to internal chaining)
