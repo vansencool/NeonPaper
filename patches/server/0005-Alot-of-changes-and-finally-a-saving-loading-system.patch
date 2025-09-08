@@ -1,0 +1,586 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Tue, 9 Sep 2025 01:26:51 +0530
+Subject: [PATCH] Alot of changes, and finally, a saving/loading system!
+
+
+diff --git a/src/main/java/net/minecraft/commands/Commands.java b/src/main/java/net/minecraft/commands/Commands.java
+index 9dc794028c7737ad1e1d291219b1034161f1a377..433e875370fc245dca6b91ad765749a89d4047ce 100644
+--- a/src/main/java/net/minecraft/commands/Commands.java
++++ b/src/main/java/net/minecraft/commands/Commands.java
+@@ -38,7 +38,6 @@ import net.minecraft.gametest.framework.TestCommand;
+ import net.minecraft.network.chat.ClickEvent;
+ import net.minecraft.network.chat.CommonComponents;
+ import net.minecraft.network.chat.Component;
+-import net.minecraft.network.chat.ComponentUtils;
+ import net.minecraft.network.chat.HoverEvent;
+ import net.minecraft.network.chat.MutableComponent;
+ import net.minecraft.network.protocol.game.ClientboundCommandsPacket;
+@@ -133,7 +132,7 @@ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.tags.TagKey;
+ import net.minecraft.util.profiling.jfr.JvmProfiler;
+ import net.minecraft.world.level.GameRules;
+-import net.vansen.neonpaper.config.NeonPaperConfig;
++import net.vansen.neonpaper.NeonPaper;
+ import org.slf4j.Logger;
+ 
+ // CraftBukkit start
+@@ -253,7 +252,7 @@ public class Commands {
+             WhitelistCommand.register(this.dispatcher);
+ 
+             // NeonPaper start
+-            NeonPaperConfig.registerDefaults(this.dispatcher);
++            NeonPaper.registerDefaults(this.dispatcher);
+             // NeonPaper end
+         }
+ 
+diff --git a/src/main/java/net/minecraft/server/Main.java b/src/main/java/net/minecraft/server/Main.java
+index c289d89076c3fa2cdecca3a4b1bce14fcdfadd00..c1185c8cf8ef95e4255c1878ce90ee7eb67838e1 100644
+--- a/src/main/java/net/minecraft/server/Main.java
++++ b/src/main/java/net/minecraft/server/Main.java
+@@ -1,6 +1,5 @@
+ package net.minecraft.server;
+ 
+-import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
+ import com.mojang.datafixers.DataFixer;
+ import com.mojang.logging.LogUtils;
+ import com.mojang.serialization.Dynamic;
+@@ -16,13 +15,9 @@ import java.nio.file.Paths;
+ import java.util.Optional;
+ import java.util.function.BooleanSupplier;
+ import javax.annotation.Nullable;
+-import joptsimple.OptionParser;
++
+ import joptsimple.OptionSet;
+-import joptsimple.OptionSpec;
+-import joptsimple.util.PathConverter;
+-import joptsimple.util.PathProperties;
+ import net.minecraft.CrashReport;
+-import net.minecraft.DefaultUncaughtExceptionHandler;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.Util;
+ import net.minecraft.commands.Commands;
+@@ -59,14 +54,14 @@ import net.minecraft.world.level.storage.LevelResource;
+ import net.minecraft.world.level.storage.LevelStorageSource;
+ import net.minecraft.world.level.storage.LevelSummary;
+ import net.minecraft.world.level.storage.PrimaryLevelData;
+-import net.vansen.neonpaper.config.NeonPaperConfig;
++import net.vansen.neonpaper.NeonPaper;
+ import org.slf4j.Logger;
+ 
+ // CraftBukkit start
+ import com.google.common.base.Charsets;
+ import java.io.InputStreamReader;
+ import java.util.concurrent.atomic.AtomicReference;
+-import net.minecraft.SharedConstants;
++
+ import org.bukkit.configuration.file.YamlConfiguration;
+ // CraftBukkit end
+ 
+@@ -122,7 +117,7 @@ public class Main {
+             }
+ 
+             // NeonPaper start
+-            NeonPaperConfig.initializeConfig();
++            NeonPaper.load();
+             // NeonPaper end
+ 
+             io.papermc.paper.plugin.PluginInitializerManager.load(optionset); // Paper
+diff --git a/src/main/java/net/vansen/neonpaper/config/NeonPaperConfig.java b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+similarity index 90%
+rename from src/main/java/net/vansen/neonpaper/config/NeonPaperConfig.java
+rename to src/main/java/net/vansen/neonpaper/NeonPaper.java
+index 81688d6d81c80bd1c9cf5a07e23ddcc36ac3bc49..5845fccd85a6e085d559e4ab5176d920cfa150ea 100644
+--- a/src/main/java/net/vansen/neonpaper/config/NeonPaperConfig.java
++++ b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+@@ -1,11 +1,14 @@
+-package net.vansen.neonpaper.config;
++package net.vansen.neonpaper;
+ 
+ import com.mojang.brigadier.CommandDispatcher;
+ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+ import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
+ import net.minecraft.commands.CommandSourceStack;
+ import net.vansen.fursconfig.FursConfig;
++import net.vansen.neonpaper.command.NeonCommand;
+ import net.vansen.neonpaper.command.NeonTestingCommand;
++import net.vansen.neonpaper.config.ConfigVariables;
++import net.vansen.neonpaper.config.DefaultConfig;
+ import org.jetbrains.annotations.NotNull;
+ 
+ import java.io.File;
+@@ -13,11 +16,7 @@ import java.io.FileWriter;
+ import java.io.IOException;
+ import java.nio.file.Files;
+ 
+-/**
+- * NeonPaper configuration class.
+- * This class handles the loading, saving, and registering of commands based on the configuration.
+- */
+-public class NeonPaperConfig {
++public class NeonPaper {
+ 
+     private static final ComponentLogger LOGGER = ComponentLogger.logger("NeonPaper");
+     public static final File PARENT_CONFIG_FILE = new File("neonpaper");
+@@ -44,6 +43,7 @@ public class NeonPaperConfig {
+ 
+     public static void registerDefaults(@NotNull CommandDispatcher<CommandSourceStack> dispatcher) {
+         NeonTestingCommand.register(dispatcher);
++        NeonCommand.register(dispatcher);
+     }
+ 
+     /**
+@@ -62,7 +62,7 @@ public class NeonPaperConfig {
+         }
+     }
+ 
+-    public static void initializeConfig() {
++    public static void load() {
+         loadConfig();
+ 
+         if (!config.hasPath("version")) {
+@@ -73,6 +73,10 @@ public class NeonPaperConfig {
+                 loadConfig();
+         }
+ 
++        if (config.hasPath("performance.add_ticket_to_chunks")) {
++            ConfigVariables.ADD_TICKET_TO_CHUNKS = config.getBoolean("performance.add_ticket_to_chunks", false);
++        }
++
+         ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
+     }
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java b/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
+index db37c3046f883e6df94a1e908a23a719cf7cd2d9..b29b0e9aebb6bb493e209e9961d17d4a805caba6 100644
+--- a/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
++++ b/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
+@@ -1,9 +1,21 @@
+ package net.vansen.neonpaper.chunk;
+ 
++import com.mojang.serialization.Codec;
++import com.mojang.serialization.codecs.RecordCodecBuilder;
++import net.minecraft.world.level.block.Block;
++import net.minecraft.world.level.block.Blocks;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.chunk.PalettedContainer;
+ 
++import java.util.Arrays;
++
+ public record SnappedChunk(SnappedChunk.SnappedSectionData[] data) {
++    public static final Codec<SnappedChunk> CODEC = RecordCodecBuilder.create(instance -> instance.group(
++        SnappedSectionData.CODEC.listOf().fieldOf("data")
++            .xmap(list -> list.toArray(SnappedSectionData[]::new), Arrays::asList)
++            .forGetter(SnappedChunk::data)
++    ).apply(instance, SnappedChunk::new));
++
+ 
+     /**
+      * Copy the snapped chunk.
+@@ -20,8 +32,30 @@ public record SnappedChunk(SnappedChunk.SnappedSectionData[] data) {
+         return new SnappedChunk(data);
+     }
+ 
+-    public record SnappedSectionData(short nonEmptyBlockCount, short tickingBlockCount, short tickingFluidCount, int specialCollidingBlocks,
+-                                     PalettedContainer<BlockState> states) {
++    public record SnappedSectionData(
++        short nonEmptyBlockCount,
++        short tickingBlockCount,
++        short tickingFluidCount,
++        int specialCollidingBlocks,
++        PalettedContainer<BlockState> states
++    ) {
++        public static final Codec<PalettedContainer<BlockState>> BLOCKSTATE_CONTAINER_CODEC =
++            PalettedContainer.codecRO(
++                Block.BLOCK_STATE_REGISTRY,
++                BlockState.CODEC,
++                PalettedContainer.Strategy.SECTION_STATES,
++                Blocks.AIR.defaultBlockState()
++            ).xmap(
++                c -> (PalettedContainer<BlockState>) c,
++                c -> c
++            );
+ 
++        public static final Codec<SnappedSectionData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
++            Codec.SHORT.fieldOf("nonEmptyBlockCount").forGetter(SnappedSectionData::nonEmptyBlockCount),
++            Codec.SHORT.fieldOf("tickingBlockCount").forGetter(SnappedSectionData::tickingBlockCount),
++            Codec.SHORT.fieldOf("tickingFluidCount").forGetter(SnappedSectionData::tickingFluidCount),
++            Codec.INT.fieldOf("specialCollidingBlocks").forGetter(SnappedSectionData::specialCollidingBlocks),
++            BLOCKSTATE_CONTAINER_CODEC.fieldOf("states").forGetter(SnappedSectionData::states)
++        ).apply(instance, SnappedSectionData::new));
+     }
+ }
+diff --git a/src/main/java/net/vansen/neonpaper/command/NeonCommand.java b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..8e94b2307accaa99aac8bc52435a5acb330b5d02
+--- /dev/null
++++ b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+@@ -0,0 +1,251 @@
++package net.vansen.neonpaper.command;
++
++import com.mojang.brigadier.CommandDispatcher;
++import com.mojang.brigadier.arguments.IntegerArgumentType;
++import com.mojang.brigadier.arguments.StringArgumentType;
++import com.mojang.serialization.Codec;
++import com.mojang.serialization.DataResult;
++import com.mojang.serialization.codecs.RecordCodecBuilder;
++import net.kyori.adventure.text.Component;
++import net.kyori.adventure.text.format.TextColor;
++import net.minecraft.commands.CommandSourceStack;
++import net.minecraft.commands.Commands;
++import net.minecraft.core.BlockPos;
++import net.minecraft.nbt.*;
++import net.minecraft.server.level.DistanceManager;
++import net.minecraft.server.level.ServerLevel;
++import net.minecraft.server.level.TicketType;
++import net.minecraft.util.Unit;
++import net.minecraft.world.level.ChunkPos;
++import net.minecraft.world.level.chunk.LevelChunk;
++import net.vansen.neonpaper.NeonPaper;
++import net.vansen.neonpaper.chunk.SnappedChunk;
++import net.vansen.neonpaper.config.ConfigVariables;
++import org.bukkit.command.CommandSender;
++import org.bukkit.craftbukkit.CraftWorld;
++import org.bukkit.entity.Player;
++import org.jetbrains.annotations.NotNull;
++
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.util.*;
++import java.util.concurrent.CompletableFuture;
++
++public class NeonCommand {
++    private static final File SNAP_DIR = new File("neon_snapshots");
++    private static final HashMap<String, List<SnappedEntry>> SNAP_CACHE = new HashMap<>();
++
++    public static final Codec<ChunkPos> CHUNKPOS_CODEC = RecordCodecBuilder.create(i -> i.group(
++        Codec.INT.fieldOf("x").forGetter(p -> p.x),
++        Codec.INT.fieldOf("z").forGetter(p -> p.z)
++    ).apply(i, ChunkPos::new));
++
++    public record SnappedEntry(ChunkPos pos, SnappedChunk chunk) {
++        public static final Codec<SnappedEntry> CODEC = RecordCodecBuilder.create(i -> i.group(
++            CHUNKPOS_CODEC.fieldOf("pos").forGetter(SnappedEntry::pos),
++            SnappedChunk.CODEC.fieldOf("chunk").forGetter(SnappedEntry::chunk)
++        ).apply(i, SnappedEntry::new));
++    }
++
++    private static final Map<UUID, BlockPos> pos1Map = new HashMap<>();
++    private static final Map<UUID, BlockPos> pos2Map = new HashMap<>();
++
++    public static void register(@NotNull CommandDispatcher<CommandSourceStack> dispatcher) {
++        NeonPaper.register(dispatcher, Commands.literal("neonpaper")
++            .requires(stack -> stack.getBukkitSender().hasPermission("neonpaper.use"))
++
++            .then(Commands.literal("reload")
++                .executes(ctx -> {
++                    NeonPaper.load();
++                    ctx.getSource().getBukkitSender().sendRichMessage("<#80d0ff>NeonPaper configuration reloaded.");
++                    return 1;
++                }))
++
++            .then(Commands.literal("region")
++                .then(Commands.literal("pos")
++                    .then(Commands.literal("1")
++                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1, null, null))
++                        .then(Commands.argument("x", IntegerArgumentType.integer())
++                            .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
++                                IntegerArgumentType.getInteger(ctx, "x"), null))
++                            .then(Commands.argument("z", IntegerArgumentType.integer())
++                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
++                                    IntegerArgumentType.getInteger(ctx, "x"),
++                                    IntegerArgumentType.getInteger(ctx, "z"))))))
++
++                    .then(Commands.literal("2")
++                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2, null, null))
++                        .then(Commands.argument("x", IntegerArgumentType.integer())
++                            .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
++                                IntegerArgumentType.getInteger(ctx, "x"), null))
++                            .then(Commands.argument("z", IntegerArgumentType.integer())
++                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
++                                    IntegerArgumentType.getInteger(ctx, "x"),
++                                    IntegerArgumentType.getInteger(ctx, "z")))))))
++
++                    .then(Commands.literal("save")
++                        .then(Commands.argument("name", StringArgumentType.word())
++                            .executes(ctx -> {
++                                CommandSender s = ctx.getSource().getBukkitSender();
++                                if (!(s instanceof Player p)) {
++                                    s.sendRichMessage("<#ff388b>Only players.");
++                                    return 0;
++                                }
++
++                                if (!pos1Map.containsKey(p.getUniqueId()) || !pos2Map.containsKey(p.getUniqueId())) {
++                                    s.sendRichMessage("<#ff388b>Both positions must be set first using /neonpaper pos 1 and /neonpaper pos 2.");
++                                    return 0;
++                                }
++
++                                CompletableFuture.runAsync(() -> save(p, pos1Map.get(p.getUniqueId()), pos2Map.get(p.getUniqueId()), StringArgumentType.getString(ctx, "name")));
++                                return 1;
++                            })))
++
++                .then(Commands.literal("paste")
++                    .then(Commands.argument("name", StringArgumentType.word())
++                        .executes(ctx -> {
++                            CommandSender s = ctx.getSource().getBukkitSender();
++                            if (!(s instanceof Player p)) {
++                                s.sendRichMessage("<#ff388b>Only players.");
++                                return 0;
++                            }
++                            CompletableFuture.runAsync(() -> paste(p, StringArgumentType.getString(ctx, "name")));
++                            return 1;
++                        })))), "neonpaper");
++    }
++
++    private static int pos(@NotNull CommandSender sender, int slot, Integer x, Integer z) {
++        if (!(sender instanceof Player p)) {
++            sender.sendRichMessage("<#ff388b>Only players.");
++            return 0;
++        }
++
++        BlockPos old = (slot == 1 ? pos1Map.get(p.getUniqueId()) : pos2Map.get(p.getUniqueId()));
++
++        BlockPos newPos = new BlockPos(x != null ? x : p.getLocation().getBlockX(), old != null ? old.getY() : p.getLocation().getBlockY(), z != null ? z : p.getLocation().getBlockZ());
++        if (slot == 1) pos1Map.put(p.getUniqueId(), newPos);
++        else pos2Map.put(p.getUniqueId(), newPos);
++
++        if (pos1Map.containsKey(p.getUniqueId()) || pos2Map.containsKey(p.getUniqueId())) {
++            BlockPos from = pos1Map.get(p.getUniqueId());
++            BlockPos to = pos2Map.get(p.getUniqueId());
++            if (from == null || to == null) {
++                sender.sendActionBar(Component.text("Position " + slot + " set to " + newPos, TextColor.fromHexString("#80d0ff")));
++                return 1;
++            }
++            int chunks = (Math.abs((from.getX() >> 4) - (to.getX() >> 4)) + 1) * (Math.abs((from.getZ() >> 4) - (to.getZ() >> 4)) + 1);
++            sender.sendRichMessage("<#80d0ff>Position " + slot + " set to " + newPos + ". " + chunks + " chunks, and " + format((long) chunks * 16 * 16 * 381) + " blocks selected.");
++        } else {
++            sender.sendActionBar(Component.text("Position " + slot + " set to " + newPos, TextColor.fromHexString("#80d0ff")));
++        }
++        return 1;
++    }
++
++    @SuppressWarnings("ResultOfMethodCallIgnored")
++    private static void save(@NotNull Player player, @NotNull BlockPos from, @NotNull BlockPos to, @NotNull String name) {
++        List<SnappedEntry> list = new ArrayList<>();
++
++        long start = System.currentTimeMillis();
++        for (int cx = Math.min(from.getX() >> 4, to.getX() >> 4); cx <= Math.max(from.getX() >> 4, to.getX() >> 4); cx++) {
++            for (int cz = Math.min(from.getZ() >> 4, to.getZ() >> 4); cz <= Math.max(from.getZ() >> 4, to.getZ() >> 4); cz++) {
++                LevelChunk chunk = ((CraftWorld) player.getWorld()).getHandle().getChunk(cx, cz);
++                list.add(new SnappedEntry(new ChunkPos(cx, cz), chunk.snap()));
++            }
++        }
++
++        SNAP_DIR.mkdirs();
++        File f = new File(SNAP_DIR, name + ".nbt");
++
++        DataResult<Tag> encoded = SnappedEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, list);
++        if (encoded.result().isEmpty()) {
++            player.sendRichMessage("<#ff388b>Encode failed: " + encoded.error().orElseThrow().message());
++            return;
++        }
++
++        try (FileOutputStream out = new FileOutputStream(f)) {
++            Tag tag = encoded.result().get();
++            CompoundTag root = new CompoundTag();
++            root.put("entries", tag);
++            NbtIo.writeCompressed(root, out);
++        } catch (IOException e) {
++            player.sendRichMessage("<#ff388b>Save failed: " + e.getMessage());
++            return;
++        }
++
++        player.sendRichMessage("<#a1ceff>Saved " + list.size() + " chunks to " + f.getName() + " in " + (System.currentTimeMillis() - start) + "ms");
++    }
++
++    private static void paste(@NotNull Player player, @NotNull String name) {
++        ServerLevel lvl = ((CraftWorld) player.getWorld()).getHandle();
++        File f = new File(SNAP_DIR, name + ".nbt");
++        if (!f.exists()) {
++            player.sendRichMessage("<red>No file: " + f.getName());
++            return;
++        }
++
++        List<SnappedEntry> list;
++
++        long startRead = System.currentTimeMillis();
++        boolean fromCache = false;
++        if (SNAP_CACHE.containsKey(name)) {
++            list = SNAP_CACHE.get(name);
++            fromCache = true;
++            player.sendMessage("");
++            player.sendRichMessage("<#a1ceff>Using cached snapshot " + f.getName() + " with " + list.size() + " chunks.");
++        }
++        else {
++            try (FileInputStream in = new FileInputStream(f)) {
++                Tag entriesTag = NbtIo.readCompressed(in, NbtAccounter.unlimitedHeap()).get("entries");
++                if (!(entriesTag instanceof ListTag)) {
++                    player.sendRichMessage("<#ff388b>Invalid NBT format: 'entries' is not a list");
++                    return;
++                }
++
++                DataResult<List<SnappedEntry>> decoded = SnappedEntry.CODEC.listOf().parse(NbtOps.INSTANCE, entriesTag);
++                if (decoded.result().isEmpty()) {
++                    player.sendRichMessage("<#ff388b>Decode failed: " + decoded.error().get().message());
++                    return;
++                }
++
++                list = decoded.result().get();
++            } catch (Exception e) {
++                player.sendRichMessage("<#ff388b>Load failed: " + e.getMessage());
++                return;
++            }
++        }
++
++        SNAP_CACHE.putIfAbsent(name, list);
++
++        if (!fromCache) {
++            player.sendMessage("");
++            player.sendRichMessage("<#a1ceff>Loaded " + list.size() + " chunks from " + f.getName() + " in " + (System.currentTimeMillis() - startRead) + "ms");
++        }
++
++        DistanceManager dm = lvl.getChunkSource().chunkMap.distanceManager;
++        long startPaste = System.currentTimeMillis();
++        for (SnappedEntry e : list) {
++            ChunkPos pos = e.pos();
++            if (ConfigVariables.ADD_TICKET_TO_CHUNKS)
++                dm.addRegionTicketAtDistance(TicketType.REGEN, new ChunkPos(pos.x, pos.z), 2, Unit.INSTANCE);
++            lvl.setChunkAt(pos.x, pos.z, e.chunk());
++            player.getWorld().refreshChunk(pos.x, pos.z);
++        }
++
++        player.sendRichMessage("<#bb45ff>Pasted " + format((long) list.size() * 16 * 16 * 381) + " blocks" +
++            " in " + (System.currentTimeMillis() - startPaste) + "ms (" + format((long) list.size() * 16 * 16 * 381 * 1000 / Math.max(1, System.currentTimeMillis() - startPaste)) + "/s)");
++    }
++
++    public static String format(long number) {
++        if (number >= 1_000_000_000) {
++            return String.format("%.2f %s", number / 1_000_000_000.0, "billion");
++        } else if (number >= 1_000_000) {
++            return String.format("%.2f %s", number / 1_000_000.0, "million");
++        } else if (number >= 1_000) {
++            return String.format("%.0f %s", number / 1_000.0, "thousand");
++        } else {
++            return String.valueOf(number);
++        }
++    }
++}
+diff --git a/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java b/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
+index 17de3f4746ea4012678697599a4554f4533b127b..6cfce2fbe3c37b1677aad0837424f254d634e4a5 100644
+--- a/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
++++ b/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
+@@ -3,6 +3,9 @@ package net.vansen.neonpaper.command;
+ import com.mojang.brigadier.CommandDispatcher;
+ import com.mojang.brigadier.arguments.IntegerArgumentType;
+ import io.papermc.paper.util.MCUtil;
++import net.kyori.adventure.text.Component;
++import net.kyori.adventure.text.event.ClickEvent;
++import net.kyori.adventure.text.format.TextColor;
+ import net.minecraft.commands.CommandSourceStack;
+ import net.minecraft.commands.Commands;
+ import net.minecraft.server.level.DistanceManager;
+@@ -14,7 +17,7 @@ import net.minecraft.world.level.ChunkPos;
+ import net.minecraft.world.level.chunk.LevelChunk;
+ import net.minecraft.world.level.chunk.status.ChunkStatus;
+ import net.vansen.neonpaper.chunk.SnappedChunk;
+-import net.vansen.neonpaper.config.NeonPaperConfig;
++import net.vansen.neonpaper.NeonPaper;
+ import org.bukkit.Chunk;
+ import org.bukkit.Material;
+ import org.bukkit.World;
+@@ -38,8 +41,8 @@ public class NeonTestingCommand {
+ 
+     public static final Map<ChunkPos, SnappedChunk> snapshots = new HashMap<>();
+ 
+-    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+-        NeonPaperConfig.register(dispatcher, Commands.literal("neontest")
++    public static void register(@NotNull CommandDispatcher<CommandSourceStack> dispatcher) {
++        NeonPaper.register(dispatcher, Commands.literal("neontest")
+             .requires(stack -> stack.getBukkitSender().hasPermission("neontest.use"))
+             .then(Commands.literal("simple")
+                 .then(Commands.literal("snapshot")
+@@ -77,15 +80,18 @@ public class NeonTestingCommand {
+                             return 1;
+                         })
+                         .then(Commands.argument("runs", IntegerArgumentType.integer(1))
+-                            .executes(context -> {
++                            .then(Commands.argument("warmup", IntegerArgumentType.integer(0))
++                                .executes(context -> {
+                                 CommandSender sender = context.getSource().getBukkitSender();
+                                 if (!(sender instanceof Player player)) {
+                                     sender.sendMessage("<red>Only players can execute this command.");
+                                     return 0;
+                                 }
+-                                runBenchmark(player, context.getArgument("radius", Integer.class), context.getArgument("runs", Integer.class));
++                                player.sendMessage(Component.text("Are you sure you want to run this benchmark? it will FULLY override one of your chunks with air (far away from your current location,) " +
++                                        "so make sure this is just a test world!", TextColor.fromHexString("#ff4f7e"))
++                                    .clickEvent(ClickEvent.callback(ignored -> runBenchmark(player, context.getArgument("radius", Integer.class), context.getArgument("runs", Integer.class)))));
+                                 return 1;
+-                            }))))), "testing");
++                            })))))), "testing");
+     }
+ 
+ 
+@@ -205,7 +211,7 @@ public class NeonTestingCommand {
+             player.sendRichMessage("<green>Benchmark complete!</green>");
+             player.sendRichMessage("");
+             player.sendRichMessage("<#c2d8ff>Restore avg: <yellow>" + String.format("%.2f", (double) totalRestore.get() / runs / 1_000_000.0) + "</yellow> ms");
+-            player.sendRichMessage("<gray>Per-chunk time: <white>" + String.format("%.2f", (double) totalRestore.get() / runs / chunksToUse.size() / 1_000_000.0) + "</white> ms");
++            player.sendRichMessage("<gray>Per-chunk time: <white>" + String.format("%.3f", (double) totalRestore.get() / runs / chunksToUse.size() / 1_000_000.0) + "</white> ms");
+             player.sendRichMessage("");
+             player.sendRichMessage("<gray>Total time: <white>" + String.format("%.2f", totalMs) + "</white> ms");
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+index 74038b310241f0c203645d436d83a75b9756eb12..ffe6637cb22874d01f598757921c62eb93de75f3 100644
+--- a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
++++ b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+@@ -3,4 +3,5 @@ package net.vansen.neonpaper.config;
+ public class ConfigVariables {
+ 
+     public static boolean FILTER_OUT_INVALID_LOGS = true;
++    public static boolean ADD_TICKET_TO_CHUNKS = false;
+ }
+diff --git a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+index 9637909ca5986953378fccf0a90f8d9b90e3b077..3a40d6f10fbef317672a437e67da090fe06aed63 100644
+--- a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
++++ b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+@@ -2,7 +2,7 @@ package net.vansen.neonpaper.config;
+ 
+ public class DefaultConfig {
+ 
+-    public static String VERSION = "1.0.1";
++    public static String VERSION = "1.0.2";
+ 
+     public static String CONFIG = """
+         // NeonPaper Configuration
+@@ -11,8 +11,8 @@ public class DefaultConfig {
+         version = "%s"
+         
+         commands {
+-            // Enable the testing command. This command is used for testing purposes only, or benchmarking.
+-            testing_command = true
++            testing_command = false // Enable the testing command. This command is used for testing purposes only, or benchmarking.
++            neonpaper_command = true // Main command, for saving and pasting regions
+         }
+         
+         general {
+@@ -22,5 +22,18 @@ public class DefaultConfig {
+             // Recommended
+             filter_out_invalid_logs = true
+         }
++        
++        performance {
++            // If true, regenerating an region will add a ticket to all chunks in the region
++            // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
++            // This will make sure the chunks are loaded as fast as possible
++            // However, its only good if you regenerate regions often, otherwise its just not worth it
++            // Recommended if you have large region that are regenerated often
++            add_ticket_to_chunks = false
++        
++            // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
++            // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
++            cache_chunk_data = true
++        }
+         """.formatted(VERSION);
+ }
