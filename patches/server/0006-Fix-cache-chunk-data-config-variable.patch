@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Tue, 9 Sep 2025 01:30:47 +0530
+Subject: [PATCH] Fix cache chunk data config variable
+
+
+diff --git a/src/main/java/net/vansen/neonpaper/NeonPaper.java b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+index 5845fccd85a6e085d559e4ab5176d920cfa150ea..62d1955c956d1d3a30bbcccd9294f3a2b3713054 100644
+--- a/src/main/java/net/vansen/neonpaper/NeonPaper.java
++++ b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+@@ -77,6 +77,10 @@ public class NeonPaper {
+             ConfigVariables.ADD_TICKET_TO_CHUNKS = config.getBoolean("performance.add_ticket_to_chunks", false);
+         }
+ 
++        if (config.hasPath("performance.cache_chunk_data")) {
++            ConfigVariables.CACHE_CHUNK_DATA = config.getBoolean("performance.cache_chunk_data", false);
++        }
++
+         ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
+     }
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/command/NeonCommand.java b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+index 8e94b2307accaa99aac8bc52435a5acb330b5d02..20e43878ccd3036e917d30a32c80d5aaef86478e 100644
+--- a/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
++++ b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+@@ -216,7 +216,7 @@ public class NeonCommand {
+             }
+         }
+ 
+-        SNAP_CACHE.putIfAbsent(name, list);
++        if (ConfigVariables.CACHE_CHUNK_DATA) SNAP_CACHE.putIfAbsent(name, list);
+ 
+         if (!fromCache) {
+             player.sendMessage("");
+diff --git a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+index ffe6637cb22874d01f598757921c62eb93de75f3..ebfca80b1c17d27511d08434f9fcf5de8eff9f53 100644
+--- a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
++++ b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+@@ -4,4 +4,5 @@ public class ConfigVariables {
+ 
+     public static boolean FILTER_OUT_INVALID_LOGS = true;
+     public static boolean ADD_TICKET_TO_CHUNKS = false;
++    public static boolean CACHE_CHUNK_DATA = false;
+ }
+diff --git a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+index 3a40d6f10fbef317672a437e67da090fe06aed63..8d93d71c0d662906198b7360d758dfcca2679ef4 100644
+--- a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
++++ b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+@@ -33,7 +33,7 @@ public class DefaultConfig {
+         
+             // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
+             // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
+-            cache_chunk_data = true
++            cache_chunk_data = false
+         }
+         """.formatted(VERSION);
+ }
