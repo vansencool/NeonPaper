@@ -1,71 +1,93 @@
 # NeonPaper
 
-This is a custom Paper fork made for one thing: **regenerating massive regions extremely fast.**
-It uses a new method of regeneration by directly replacing full chunks instead of setting blocks one by one.
+**NeonPaper** is a custom Paper fork built for one purpose:
+**regenerating massive regions at extreme speed.**
 
 ---
 
 ## Benchmarks
 
-NeonPaper was tested on a **Ryzen 7 3700X**, regenerating **hundreds of millions of blocks** with **almost no impact** on server performance.
-These tests were repeated multiple times, including full regeneration cycles.
+All benchmarks were run on a **Ryzen 7 3700X**.
 
-Actual **MSPT impact** may vary depending on the number of players online (due to chunk priority).
+### NeonTest | 164 Million Blocks
 
-This test regenerated around **164 million blocks** in one go.
-It completed in just **\~15ms**, with **no performance hit**.
+* Completed in **\~15ms**
+* **No visible MSPT impact**
 
 ![Benchmark 164 Million Blocks](images/1.png)
 
-This one regenerated nearly **640 million blocks**.
-Even with this huge volume, **MSPT remained stable**.
+### NeonTest | 640 Million Blocks
+
+* Regenerated nearly **640 million blocks** at once
+* **MSPT remained stable** throughout
 
 ![Benchmark 640 Million Blocks](images/2.png)
 
-The benchmark involved:
+### NeonTest | Benchmark Method
 
-* Setting chunks to air
-* Regenerating them
-* Repeating this cycle **5 times**
+The test involved repeatedly:
 
-Through all of this, **MSPT barely changed**. Any minor fluctuations came from mob spawning and suffocation after the chunks were set to air, not from the regeneration itself.
+1. Setting chunks to air
+2. Regenerating them
+3. Repeating this five times
 
-## Why not a plugin?
+Through all of this, server performance stayed stable. The only small spikes came from mobs suffocating when their chunks were cleared, not from the regeneration itself.
 
-Plugins *can't necessarily* use this method because of how Minecraft is built.
+### Benchmark | Realistic Benchmark
+The benchmarks above did not include loading chunks from the files, and it was setting to air and regenerating it, which is well, not really a real world use case.
+This benchmark will show, the time it takes to load the chunks from the world files, and then regenerate them.
 
-However, plugins *can* change blocks one by one, but this is **extremely slow** (even when using low-level methods).  
-When a plugin changes blocks, it triggers a long chain of code.
-For example, regenerating 30 million blocks through a plugin (low level) might involve:
+* Regenerated **100 million blocks** in **16ms**
+  ![Benchmark 100 Million Blocks](images/3.png)
 
-- **Around 60 million** array accesses
-- **Hundreds of millions** of method calls (due to internal chaining)
-- Constant creation and modification of integers, longs, and objects
-- *Much more*
+* Regenerated **500 million blocks** in **79ms**
+  ![Benchmark 500m Million Blocks](images/4.png)
 
-These numbers are rough estimates and may vary, but the key point is that plugins simply **can’t skip that chain or directly replace raw data. This fork does.**
+---
 
-## What makes it fast?
+## Why Not a Plugin?
 
-This fork introduces a new way to regenerate areas by changing the chunk's data directly.
-That means almost *no overhead*, no chains of logic, and no per-block cost.
-Because of this, it can regenerate up to **2 billion blocks in under 250 milliseconds.**
+Plugins can regenerate blocks, but only one at a time. Every single block change runs through a long chain of logic inside Minecraft, causing:
 
-## World Regeneration Support
+* Tens of millions of array lookups
+* Hundreds of millions of method calls
+* Constant object and integer creation
 
-World regeneration support will come soon, but it is *not a priority*.
+Even using the lowest-level APIs, regenerating tens of millions of blocks is painfully slow.
+
+NeonPaper avoids all of that by **working directly with raw chunk data**. No chains, no per-block cost.
+
+---
+
+## What Makes It Fast?
+
+By directly replacing chunk data, NeonPaper can regenerate **billions of blocks in under a quarter of a second**.
+
+This method removes nearly all overhead, allowing regeneration on a scale that plugins simply cannot achieve.
+
+---
+
+## World Regeneration
+
+Support for full world regeneration is planned, but not a current priority.
+
+---
 
 ## How to Use
 
-Usage is coming soon.
+Usage instructions will be added soon.
+
+---
 
 ## Known Issues
 
-- **Block entities that are ticking (like spawners,) do not work yet.**  
-  They will be restored properly, but they won't be ticking.
+* Block entities that tick (e.g., spawners) regenerate correctly but do not tick yet. This will not be fixed anytime soon.
+
+---
 
 ## Disclaimer
 
-The numbers listed above are only examples of what is possible.  
-To regenerate a billion or more blocks, the server must be able to load that many chunks at once.  
-For example, regenerating two billion blocks requires loading around **20,000 chunks** at the same time.
+Performance depends on how many chunks your server can load at once.
+For example, regenerating **two billion blocks** requires loading around **20,000 chunks simultaneously**.
+
+The benchmarks above show what’s possible under the right conditions.
