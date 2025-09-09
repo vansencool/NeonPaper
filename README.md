@@ -9,19 +9,27 @@
 
 All benchmarks were run on a **Ryzen 7 3700X**.
 
-### NeonTest | 164 Million Blocks
+### NeonTest | 100 Million Blocks
 
-* Completed in **\~15ms**
-* **No visible MSPT impact**
+* Regenerated **100 million blocks** in **\~5ms**
 
-![Benchmark 164 Million Blocks](images/1.png)
+![Benchmark 100 Million Blocks](images/1.png)
 
-### NeonTest | 640 Million Blocks
+### NeonTest | 500 Million Blocks
 
-* Regenerated nearly **640 million blocks** at once
-* **MSPT remained stable** throughout
+* Regenerated **500 million blocks** in **\~30ms**
 
-![Benchmark 640 Million Blocks](images/2.png)
+![Benchmark 500 Million Blocks](images/2.png)
+
+### NeonTest | 1 Billion Blocks
+* Regenerated **1 billion blocks** in **\~67ms**
+
+![Benchmark 1 Billion Blocks](images/5.png)
+
+### NeonTest | 2 Billion Blocks
+* Regenerated **2 billion blocks** in **\~152ms**
+
+![Benchmark 2 Billion Blocks](images/6.png)
 
 ### NeonTest | Benchmark Method
 
@@ -30,6 +38,8 @@ The test involved repeatedly:
 1. Setting chunks to air
 2. Regenerating them
 3. Repeating this five times
+
+Including three warmup runs.
 
 Through all of this, server performance stayed stable. The only small spikes came from mobs suffocating when their chunks were cleared, not from the regeneration itself.
 
