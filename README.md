@@ -33,7 +33,7 @@ All benchmarks were run on a **Ryzen 7 3700X**.
 
 ### NeonTest | Benchmark Method
 
-The test involved repeatedly:
+The test involved:
 
 1. Setting chunks to air
 2. Regenerating them
@@ -41,18 +41,32 @@ The test involved repeatedly:
 
 Including three warmup runs.
 
-Through all of this, server performance stayed stable. The only small spikes came from mobs suffocating when their chunks were cleared, not from the regeneration itself.
+Through all of this, server performance stayed stable.
 
 ### Benchmark | Realistic Benchmark
 The benchmarks above did not include loading chunks from the files, and it was setting to air and regenerating it, which is well, not really a real world use case.
 This benchmark will show, the time it takes to load the chunks from the world files, and then regenerate them.
 
-* Regenerated **100 million blocks** in **16ms**
+* Regenerated **100 million blocks** in **10ms**
   ![Benchmark 100 Million Blocks](images/3.png)
 
-* Regenerated **500 million blocks** in **79ms**
+* Regenerated **500 million blocks** in **64ms**
   ![Benchmark 500m Million Blocks](images/4.png)
 
+* Regenerated **1 billion blocks** in **69ms**
+  ![Benchmark 1 Billion Blocks](images/7.png)
+
+---
+
+## Storage Format
+
+NeonPaper saves the regions in compressed NBT. Here are the sizes you can expect:
+
+|             Blocks | Dimensions (x × y × z) | Save size | Blocks per MB |
+|-------------------:| ------------------ | --------- | ------------- |
+|        100 Million | 500 × 381 × 500    | 3.8 MB    | \~26.3M       |
+|        500 Million | 1100 × 381 × 1100  | 17.9 MB   | \~27.9M       |
+|          1 Billion | 1550 × 381 × 1550  | 35.4 MB   | \~28.3M       |
 ---
 
 ## Why Not a Plugin?
@@ -91,7 +105,7 @@ Usage instructions will be added soon.
 
 ## Known Issues
 
-* Block entities that tick (e.g., spawners) regenerate correctly but do not tick yet. This will not be fixed anytime soon.
+* Block entities that tick (e.g., spawners), will regenerate correctly, but wont tick anymore. This will not be fixed anytime soon.
 
 ---
 
