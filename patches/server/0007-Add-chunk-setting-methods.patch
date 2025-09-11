@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Thu, 11 Sep 2025 15:31:00 +0530
+Subject: [PATCH] Add chunk setting methods
+
+
+diff --git a/src/main/java/net/minecraft/world/level/Level.java b/src/main/java/net/minecraft/world/level/Level.java
+index 9a0dcf9ce3e9ecf59abe6e578fcc61c593aab3d8..2867d17327d634fd16e62902258cfabdba03c3a5 100644
+--- a/src/main/java/net/minecraft/world/level/Level.java
++++ b/src/main/java/net/minecraft/world/level/Level.java
+@@ -64,6 +64,8 @@ import net.minecraft.world.level.chunk.ChunkAccess;
+ import net.minecraft.world.level.chunk.ChunkSource;
+ import net.minecraft.world.level.chunk.LevelChunk;
+ import net.minecraft.world.level.chunk.LevelChunkSection;
++import net.minecraft.world.level.chunk.Palette;
++import net.minecraft.world.level.chunk.PalettedContainer;
+ import net.minecraft.world.level.chunk.status.ChunkStatus;
+ import net.minecraft.world.level.dimension.DimensionType;
+ import net.minecraft.world.level.dimension.LevelStem;
+@@ -212,13 +214,49 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+         setChunkAt(getChunk(x, z), chunk);
+     }
+ 
++    public static PalettedContainer<BlockState> packed(PalettedContainer<BlockState> src) {
++        return PalettedContainer.unpack(
++            src.registry,
++            src.strategy,
++            src.pack(src.registry, src.strategy),
++            Blocks.AIR.defaultBlockState(),
++            src.presetValues
++        ).getOrThrow(err -> {
++            throw new RuntimeException("Failed to unpack PalettedContainer: " + err);
++        });
++    }
++
++    public PalettedContainer<BlockState> direct(PalettedContainer<BlockState> src) {
++        Palette<BlockState> palette = src.data.palette();
++        int size = palette.getSize();
++        List<BlockState> paletteValues = new java.util.ArrayList<>(size);
++        for (int i = 0; i < size; i++) {
++            paletteValues.add(palette.valueFor(i));
++        }
++
++        return new PalettedContainer<>(
++            src.registry,
++            src.strategy,
++            src.data.configuration(),
++            src.data.storage().copy(),
++            paletteValues,
++            Blocks.AIR.defaultBlockState(),
++            src.presetValues
++        );
++    }
++
+     public void setChunkAt(LevelChunk currentChunk, SnappedChunk chunk) {
+         int count = currentChunk.getSectionsCount();
+         for (int i = 0; i < count; ++i) {
+             LevelChunkSection section = currentChunk.getSection(i);
+             SnappedChunk.SnappedSectionData data = chunk.data()[i];
+             if (section.hasOnlyAir() && data.nonEmptyBlockCount() == 0) continue;
+-            section.states = data.states().copy();
++
++            switch (net.vansen.neonpaper.config.ConfigVariables.CHUNK_SETTING_METHOD) {
++                case "direct" -> section.states = direct(data.states());
++                case "raw" -> section.states = data.states().copy();
++                case "packed" -> section.states = packed(data.states());
++            }
+             section.setNonEmptyBlockCount(data.nonEmptyBlockCount());
+             section.setSpecialCollidingBlocks(data.specialCollidingBlocks());
+             section.setTickingBlockCount(data.tickingBlockCount());
+diff --git a/src/main/java/net/minecraft/world/level/chunk/PalettedContainer.java b/src/main/java/net/minecraft/world/level/chunk/PalettedContainer.java
+index 13d3c877b006a4975e7370713e3919c661e7890f..1bf662de0bd96770ef0ee3ed3c8fd6db70b5e755 100644
+--- a/src/main/java/net/minecraft/world/level/chunk/PalettedContainer.java
++++ b/src/main/java/net/minecraft/world/level/chunk/PalettedContainer.java
+@@ -28,9 +28,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
+     private static final int MIN_PALETTE_BITS = 0;
+     private final PaletteResize<T> dummyPaletteResize = (newSize, added) -> 0;
+     public final IdMap<T> registry;
+-    private final T @org.jetbrains.annotations.Nullable [] presetValues; // Paper - Anti-Xray - Add preset values
++    public final T @org.jetbrains.annotations.Nullable [] presetValues; // Paper - Anti-Xray - Add preset values // NeonPaper
+     public volatile PalettedContainer.Data<T> data; // Paper - optimise collisions - public
+-    private final PalettedContainer.Strategy strategy;
++    public final PalettedContainer.Strategy strategy; // NeonPaper
+     // private final ThreadingDetector threadingDetector = new ThreadingDetector("PalettedContainer"); // Paper - unused
+ 
+     public void acquire() {
+@@ -263,9 +263,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
+         }
+     }
+ 
+-    private static <T> DataResult<PalettedContainer<T>> unpack(
++    public static <T> DataResult<PalettedContainer<T>> unpack(
+         IdMap<T> idList, PalettedContainer.Strategy paletteProvider, PalettedContainerRO.PackedData<T> serialized, T defaultValue, T @org.jetbrains.annotations.Nullable [] presetValues // Paper - Anti-Xray - Add preset values
+-    ) {
++    ) { // NeonPaper
+         List<T> list = serialized.paletteEntries();
+         int i = paletteProvider.size();
+         int j = paletteProvider.calculateBitsForSerialization(idList, list.size());
+@@ -386,7 +386,7 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
+         void accept(T object, int count);
+     }
+ 
+-    static record Data<T>(PalettedContainer.Configuration<T> configuration, BitStorage storage, Palette<T> palette) {
++    public static record Data<T>(PalettedContainer.Configuration<T> configuration, BitStorage storage, Palette<T> palette) { // NeonPaper
+         public void copyFrom(Palette<T> palette, BitStorage storage) {
+             for (int i = 0; i < storage.getSize(); i++) {
+                 T object = palette.valueFor(storage.get(i));
+diff --git a/src/main/java/net/vansen/neonpaper/NeonPaper.java b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+index 62d1955c956d1d3a30bbcccd9294f3a2b3713054..7612824d302ac1cbfd77d94b38d1043524394ce6 100644
+--- a/src/main/java/net/vansen/neonpaper/NeonPaper.java
++++ b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+@@ -81,6 +81,15 @@ public class NeonPaper {
+             ConfigVariables.CACHE_CHUNK_DATA = config.getBoolean("performance.cache_chunk_data", false);
+         }
+ 
++        if (config.hasPath("performance.chunk_setting_method")) {
++            String method = config.getString("performance.chunk_setting_method", "direct").toLowerCase();
++            if (method.equals("raw") || method.equals("direct") || method.equals("packed")) {
++                ConfigVariables.CHUNK_SETTING_METHOD = method;
++            } else {
++                LOGGER.error("Invalid chunk_setting_method in config, defaulting to 'direct'. Valid options are: raw, direct, packed.");
++            }
++        }
++
+         ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
+     }
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java b/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
+index 6cfce2fbe3c37b1677aad0837424f254d634e4a5..f667b2ebf78a7592c8c218b5f19d1f66da0f0538 100644
+--- a/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
++++ b/src/main/java/net/vansen/neonpaper/command/NeonTestingCommand.java
+@@ -16,8 +16,8 @@ import net.minecraft.util.Unit;
+ import net.minecraft.world.level.ChunkPos;
+ import net.minecraft.world.level.chunk.LevelChunk;
+ import net.minecraft.world.level.chunk.status.ChunkStatus;
+-import net.vansen.neonpaper.chunk.SnappedChunk;
+ import net.vansen.neonpaper.NeonPaper;
++import net.vansen.neonpaper.chunk.SnappedChunk;
+ import org.bukkit.Chunk;
+ import org.bukkit.Material;
+ import org.bukkit.World;
+@@ -82,16 +82,25 @@ public class NeonTestingCommand {
+                         .then(Commands.argument("runs", IntegerArgumentType.integer(1))
+                             .then(Commands.argument("warmup", IntegerArgumentType.integer(0))
+                                 .executes(context -> {
+-                                CommandSender sender = context.getSource().getBukkitSender();
+-                                if (!(sender instanceof Player player)) {
+-                                    sender.sendMessage("<red>Only players can execute this command.");
+-                                    return 0;
+-                                }
+-                                player.sendMessage(Component.text("Are you sure you want to run this benchmark? it will FULLY override one of your chunks with air (far away from your current location,) " +
+-                                        "so make sure this is just a test world!", TextColor.fromHexString("#ff4f7e"))
+-                                    .clickEvent(ClickEvent.callback(ignored -> runBenchmark(player, context.getArgument("radius", Integer.class), context.getArgument("runs", Integer.class)))));
+-                                return 1;
+-                            })))))), "testing");
++                                    CommandSender sender = context.getSource().getBukkitSender();
++                                    if (!(sender instanceof Player player)) {
++                                        sender.sendMessage("<red>Only players can execute this command.");
++                                        return 0;
++                                    }
++                                    int radius = context.getArgument("radius", Integer.class);
++                                    int chunks = (radius * 2 + 1) * (radius * 2 + 1);
++                                    long blocks = (long) chunks * 16 * 16 * 381;
++
++                                    player.sendMessage(Component.text(
++                                        "Are you sure you want to run this benchmark? It will FULLY override one of your chunks with air (far away from your current location), " +
++                                            "so make sure this is just a test world!\n" +
++                                            "This will snapshot " + chunks + " chunks (" + format(blocks) + " blocks).",
++                                        TextColor.fromHexString("#ff4f7e")
++                                    ).clickEvent(ClickEvent.callback(ignored ->
++                                        runBenchmark(player, radius, context.getArgument("runs", Integer.class))
++                                    )));
++                                    return 1;
++                                })))))), "testing");
+     }
+ 
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+index ebfca80b1c17d27511d08434f9fcf5de8eff9f53..aca75064d65348dfce5c08376124c5cb030af159 100644
+--- a/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
++++ b/src/main/java/net/vansen/neonpaper/config/ConfigVariables.java
+@@ -5,4 +5,5 @@ public class ConfigVariables {
+     public static boolean FILTER_OUT_INVALID_LOGS = true;
+     public static boolean ADD_TICKET_TO_CHUNKS = false;
+     public static boolean CACHE_CHUNK_DATA = false;
++    public static String CHUNK_SETTING_METHOD = "direct";
+ }
+diff --git a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+index 8d93d71c0d662906198b7360d758dfcca2679ef4..c965c6bff9ce334da55e3ce971c15b6f2014f645 100644
+--- a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
++++ b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+@@ -2,38 +2,67 @@ package net.vansen.neonpaper.config;
+ 
+ public class DefaultConfig {
+ 
+-    public static String VERSION = "1.0.2";
++    public static String VERSION = "1.0.3";
+ 
+     public static String CONFIG = """
+-        // NeonPaper Configuration
+-        
+-        // Do not change this
+-        version = "%s"
+-        
+-        commands {
+-            testing_command = false // Enable the testing command. This command is used for testing purposes only, or benchmarking.
+-            neonpaper_command = true // Main command, for saving and pasting regions
+-        }
+-        
+-        general {
+-            // Log filter to disable the block entity logs (caused by the changing chunk data)
+-            // They are really not relevant and can spam the console
+-            // THOUGH, IF THERE IS A ACTUAL BUG IN YOUR SERVER, YOU MAY NOT KNOW IT!
+-            // Recommended
+-            filter_out_invalid_logs = true
+-        }
+-        
+-        performance {
+-            // If true, regenerating an region will add a ticket to all chunks in the region
+-            // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
+-            // This will make sure the chunks are loaded as fast as possible
+-            // However, its only good if you regenerate regions often, otherwise its just not worth it
+-            // Recommended if you have large region that are regenerated often
+-            add_ticket_to_chunks = false
+-        
+-            // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
+-            // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
+-            cache_chunk_data = false
+-        }
+-        """.formatted(VERSION);
++    // NeonPaper Configuration
++    
++    // Do not change this
++    version = "%s"
++    
++    commands {
++        testing_command = false // Enable the testing command. This command is used for testing purposes only, or benchmarking.
++        neonpaper_command = true // Main command, for saving and pasting regions
++    }
++    
++    general {
++        // Log filter to disable the block entity logs (caused by the changing chunk data)
++        // They are really not relevant and can spam the console
++        // THOUGH, IF THERE IS A ACTUAL BUG IN YOUR SERVER, YOU MAY NOT KNOW IT!
++        // Recommended
++        filter_out_invalid_logs = true
++    }
++    
++    performance {
++        // If true, regenerating an region will add a ticket to all chunks in the region
++        // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
++        // This will make sure the chunks are loaded as fast as possible
++        // However, its only good if you regenerate regions often, otherwise its just not worth it
++        // Recommended if you have large region that are regenerated often
++        add_ticket_to_chunks = false
++    
++        // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
++        // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
++        cache_chunk_data = false
++    
++        // The method used to copy chunk section data when regenerating or pasting chunks.
++        // There are three possible modes for now:
++        //
++        //   raw
++        //     This is the fastest method, directly calling PalettedContainer.copy().
++        //     However, it has a serious downside: in many cases the copied section
++        //     ends up incomplete or broken. The most common symptom is that after
++        //     pasting, certain sections in specific chunks refuse to accept block changes (you can’t place blocks in them).
++        //     Use this only if you dont need to place blocks in the pasted region.
++        //
++        //   direct
++        //     This is the default. It manually rebuilds the palette and storage from
++        //     the source section. The result is usually safe - block placement and
++        //     editing works as expected. Performance is much faster than packed, and
++        //     very good for real-world use. This is the recommended option unless
++        //     you absolutely need guaranteed 100 correctness from vanilla code paths.
++        //
++        //   packed
++        //     This is the safest but slowest. It works by using the built-in pack()
++        //     and unpack() methods. It usually guarantees correct results in every
++        //     case. The downside is that it is ALOT slower than raw/direct (10b/s -> 500m/s).
++        //     however, its still really fast when taken in context of plugins.
++        //     This is recommended if you experience issues with "direct" mode, and don't need the extreme performance.
++        //
++        // Recommended: "direct" - Good performance and usually safe
++        // If you experience issues with it, try "packed"
++        // If you dont need to place blocks in the pasted region, use "raw" for best performance
++        chunk_setting_method = "direct"
++    }
++    """.formatted(VERSION);
+ }
