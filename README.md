@@ -62,6 +62,15 @@ This benchmark will show, the time it takes to load the chunks from the world fi
 * Regenerated **1 billion blocks** in **99ms**
   ![Benchmark 1 Billion Blocks](images/7.png)
 
+#### Benchmark Charts
+
+To better visualize the performance, here are charts comparing **NeonPaper** with a plugin that's faster/very close performance to FastAsyncWorldEdit.
+(The plugin times for 100M+, 500M, and 1B are extrapolated from its 14M and 50M results. In practice, the plugin cannot handle regenerations at this scale.)
+
+* **Blue line (NeonPaper)**
+* **Red line (Fastest Plugin)**
+![Time vs Blocks](images/time_vs_blocks.png)
+
 ---
 
 ## Storage Format

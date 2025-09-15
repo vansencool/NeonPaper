@@ -1,0 +1,1067 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Mon, 15 Sep 2025 23:48:24 +0530
+Subject: [PATCH] Add auto regeneration
+
+
+diff --git a/src/main/java/net/minecraft/server/MinecraftServer.java b/src/main/java/net/minecraft/server/MinecraftServer.java
+index 696d075ca2883f3c37e35f983c4d020e5db89d16..c53f07ebf4838120fd5faea7c944bf3390fc4410 100644
+--- a/src/main/java/net/minecraft/server/MinecraftServer.java
++++ b/src/main/java/net/minecraft/server/MinecraftServer.java
+@@ -1248,6 +1248,8 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+             }
+             // Paper end - Add onboarding message for initial server start
+ 
++            net.vansen.neonpaper.auto.AutoRegeneration.start(); // NorsPaper
++
+             while (this.running) {
+                 long i;
+ 
+diff --git a/src/main/java/net/vansen/neonpaper/NeonPaper.java b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+index 7612824d302ac1cbfd77d94b38d1043524394ce6..182d3270c221622ef84d4354493e376670bd9d4f 100644
+--- a/src/main/java/net/vansen/neonpaper/NeonPaper.java
++++ b/src/main/java/net/vansen/neonpaper/NeonPaper.java
+@@ -18,7 +18,7 @@ import java.nio.file.Files;
+ 
+ public class NeonPaper {
+ 
+-    private static final ComponentLogger LOGGER = ComponentLogger.logger("NeonPaper");
++    public static final ComponentLogger LOGGER = ComponentLogger.logger("NeonPaper");
+     public static final File PARENT_CONFIG_FILE = new File("neonpaper");
+     public static final File CONFIG_FILE = new File(PARENT_CONFIG_FILE, "neonpaper-global.conf");
+     private static FursConfig config;
+@@ -28,7 +28,7 @@ public class NeonPaper {
+      *
+      * @param dispatcher The command dispatcher.
+      * @param command    The command to register.
+-     * @param key  The command's configuration key.
++     * @param key        The command's configuration key.
+      */
+     public static void register(@NotNull CommandDispatcher<CommandSourceStack> dispatcher, @NotNull LiteralArgumentBuilder<CommandSourceStack> command, @NotNull String key) {
+         if (config == null) {
+@@ -90,7 +90,9 @@ public class NeonPaper {
+             }
+         }
+ 
+-        ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
++        if (config.hasPath("general.filter_out_invalid_logs")) {
++            ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
++        }
+     }
+ 
+     private static boolean copyAndCreate(@NotNull String currentVersion) {
+diff --git a/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java b/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad65ae1776a10422078bfec1248511c930f7a578
+--- /dev/null
++++ b/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java
+@@ -0,0 +1,198 @@
++package net.vansen.neonpaper.auto;
++
++import net.kyori.adventure.text.Component;
++import net.kyori.adventure.text.minimessage.MiniMessage;
++import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
++import net.minecraft.core.BlockPos;
++import net.minecraft.server.MinecraftServer;
++import net.vansen.fursconfig.FursConfig;
++import net.vansen.fursconfig.lang.Node;
++import net.vansen.neonpaper.NeonPaper;
++import net.vansen.neonpaper.command.NeonCommand;
++import net.vansen.neonpaper.region.Regions;
++import net.vansen.neonpaper.util.TrioValue;
++import org.bukkit.Bukkit;
++import org.bukkit.Sound;
++import org.bukkit.World;
++import org.bukkit.entity.Player;
++import org.jetbrains.annotations.NotNull;
++
++import java.util.Collection;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.Map;
++import java.util.Set;
++
++public class AutoRegeneration {
++
++    private static final Map<String, FursConfig> active = new HashMap<>();
++    private static final Map<String, Long> next = new HashMap<>();
++    private static final Map<String, Set<Long>> sentTicks = new HashMap<>();
++    private static boolean started = false;
++
++    public static void start() {
++        FursConfig config = FursConfig.createAndParseFile(NeonPaper.CONFIG_FILE);
++        active.clear();
++        next.clear();
++        sentTicks.clear();
++
++        for (Map.Entry<String, Object> entry : config.getNode("regeneration.arena").children.entrySet()) {
++            if (active.containsKey("regen." + entry.getKey()) || next.containsKey("regen." + entry.getKey())) {
++                NeonPaper.LOGGER.warn("Duplicate regeneration configuration for arena '{}', skipping...", entry.getKey());
++                continue;
++            }
++            FursConfig arenaCfg;
++            try {
++                arenaCfg = FursConfig.from((Node) entry.getValue());
++            } catch (Exception e) {
++                NeonPaper.LOGGER.error("Could not parse regeneration configuration for arena '{}', skipping...", entry.getKey(), e);
++                continue;
++            }
++            if (!arenaCfg.getBoolean("enabled")) continue;
++            if (!Regions.exists(entry.getKey())) {
++                NeonPaper.LOGGER.warn("Auto regeneration for arena '{}' is enabled, but the snapshot does not exist.", entry.getKey());
++                continue;
++            }
++
++            active.put("regen." + entry.getKey(), arenaCfg);
++            next.put("regen." + entry.getKey(), System.currentTimeMillis() + time(arenaCfg.getFursConfig("time")) * 50L);
++        }
++        if (!started) {
++            new Thread(() -> {
++                while (!Thread.currentThread().isInterrupted()) {
++                    long now = System.currentTimeMillis();
++                    for (String arenaId : new HashSet<>(active.keySet())) {
++                        long runAt = next.getOrDefault(arenaId, 0L);
++                        FursConfig cfg = active.get(arenaId);
++                        if (cfg == null) continue;
++
++                        FursConfig ticking = cfg.getFursConfig("ticking");
++                        if (ticking.getBoolean("enabled", false)) {
++                            long secondsLeft = (runAt - now) / 1000L;
++                            int tickingValue = ticking.getInt("value");
++
++                            if (secondsLeft > 0 && secondsLeft <= tickingValue) {
++                                sentTicks.putIfAbsent(arenaId, new HashSet<>());
++                                if (!sentTicks.get(arenaId).contains(secondsLeft)) {
++                                    sentTicks.get(arenaId).add(secondsLeft);
++
++                                    ticking(
++                                        MiniMessage.miniMessage().deserialize(
++                                            String.join("<newline>", ticking.getList("message", String.class)),
++                                            Placeholder.parsed("count", String.valueOf(secondsLeft))
++                                        ), ticking.getString("type"), ticking.getString("to"), cfg);
++                                }
++                            }
++                        }
++
++                        if (now >= runAt) {
++                            MinecraftServer.getServer().executor.execute(() -> regenerate(cfg));
++                            long intervalMs = time(cfg.getFursConfig("time")) * 50L;
++                            next.put(arenaId, now + intervalMs);
++                            sentTicks.remove(arenaId);
++                        }
++                    }
++
++                    try {
++                        Thread.sleep(50);
++                    } catch (InterruptedException e) {
++                        break;
++                    }
++                }
++            }, "arena-regen-scheduler").start();
++            started = true;
++        }
++    }
++
++    public static void remove(@NotNull String arenaId) {
++        active.remove("regen." + arenaId);
++        next.remove("regen." + arenaId);
++        sentTicks.remove("regen." + arenaId);
++    }
++
++    private static void regenerate(@NotNull FursConfig arenaCfg) {
++        TrioValue<BlockPos, BlockPos, World> trioValue = NeonCommand.paste(Bukkit.getConsoleSender(), arenaCfg.getString("snapshot"));
++        if (trioValue == null) {
++            NeonPaper.LOGGER.error("Auto regeneration failed: Could not paste snapshot '{}'.", arenaCfg.getString("snapshot"));
++            return;
++        }
++
++        broadcast(arenaCfg.getFursConfig("broadcast"), trioValue);
++        sounds(arenaCfg.getFursConfig("sounds"), trioValue);
++    }
++
++    private static void broadcast(@NotNull FursConfig cfg, @NotNull TrioValue<BlockPos, BlockPos, World> trioValue) {
++        String type = cfg.getString("type", "broadcast");
++        Component msg = MiniMessage.miniMessage().deserialize(String.join("<newline>", cfg.getList("message", String.class)));
++
++        switch (cfg.getString("to").toLowerCase()) {
++            case "global" -> sendMessage(type, msg, Bukkit.getOnlinePlayers());
++            case "world" -> sendMessage(type, msg, trioValue.third().getPlayers());
++            case "arena" -> sendMessage(type, msg, trioValue.third().getPlayers().stream()
++                .filter(p -> Regions.isIn(p.getLocation(), trioValue.first(), trioValue.second()))
++                .toList());
++        }
++    }
++
++    private static void sounds(@NotNull FursConfig cfg, @NotNull TrioValue<BlockPos, BlockPos, World> trioValue) {
++        Sound sound;
++        try {
++            sound = Sound.valueOf(cfg.getString("sound").toUpperCase());
++        } catch (IllegalArgumentException e) {
++            NeonPaper.LOGGER.warn("Invalid sound '{}', skipping...", cfg.getString("sound"));
++            return;
++        }
++
++        float volume = (float) cfg.getDouble("volume", 1.0);
++        float pitch = (float) cfg.getDouble("pitch", 1.0);
++
++        switch (cfg.getString("to").toLowerCase()) {
++            case "global" -> Bukkit.getOnlinePlayers().forEach(p -> p.playSound(p.getLocation(), sound, volume, pitch));
++            case "world" ->
++                trioValue.third().getPlayers().forEach(p -> p.playSound(p.getLocation(), sound, volume, pitch));
++            case "arena" -> trioValue.third().getPlayers().stream()
++                .filter(p -> Regions.isIn(p.getLocation(), trioValue.first(), trioValue.second()))
++                .forEach(p -> p.playSound(p.getLocation(), sound, volume, pitch));
++        }
++    }
++
++    private static void sendMessage(@NotNull String type, @NotNull Component msg, @NotNull Collection<? extends Player> players) {
++        switch (type.toUpperCase()) {
++            case "MESSAGE" -> players.forEach(p -> p.sendMessage(msg));
++            case "ACTIONBAR", "ACTION_BAR" -> players.forEach(p -> p.sendActionBar(msg));
++            case "BOTH" -> {
++                players.forEach(p -> p.sendMessage(msg));
++                players.forEach(p -> p.sendActionBar(msg));
++            }
++            default -> {
++                NeonPaper.LOGGER.warn("Invalid broadcast type '{}', defaulting to MESSAGE.", type);
++                players.forEach(p -> p.sendMessage(msg));
++            }
++        }
++    }
++
++    private static long time(@NotNull FursConfig timeCfg) {
++        String unit = timeCfg.getString("time_unit").toUpperCase();
++        long duration = timeCfg.getLong("duration");
++
++        return switch (unit) {
++            case "M" -> duration * 20L * 60L;
++            case "H" -> duration * 20L * 60L * 60L;
++            case "D" -> duration * 20L * 60L * 60L * 24L;
++            default -> duration * 20L;
++        };
++    }
++
++    private static void ticking(Component comp, @NotNull String type, String target, FursConfig cfg) {
++        TrioValue<BlockPos, BlockPos, World> trio = Regions.metadata(cfg.getString("snapshot"));
++        if (trio == null) return;
++
++        switch (target.toLowerCase()) {
++            case "global" -> sendMessage(type, comp, Bukkit.getOnlinePlayers());
++            case "world" -> sendMessage(type, comp, trio.third().getPlayers());
++            case "arena" -> sendMessage(type, comp, trio.third().getPlayers().stream()
++                .filter(p -> Regions.isIn(p.getLocation(), trio.first(), trio.second()))
++                .toList());
++        }
++    }
++}
+diff --git a/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java b/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
+index b29b0e9aebb6bb493e209e9961d17d4a805caba6..19995324ac45ae1cc7735cca9ebd48038b3448c2 100644
+--- a/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
++++ b/src/main/java/net/vansen/neonpaper/chunk/SnappedChunk.java
+@@ -26,8 +26,8 @@ public record SnappedChunk(SnappedChunk.SnappedSectionData[] data) {
+         SnappedSectionData[] data = new SnappedSectionData[this.data.length];
+         for (int i = 0; i < this.data.length; i++) {
+             data[i] = new SnappedSectionData(this.data[i].nonEmptyBlockCount, this.data[i].tickingBlockCount,
+-                    this.data[i].tickingFluidCount, this.data[i].specialCollidingBlocks,
+-                    this.data[i].states.copy());
++                this.data[i].tickingFluidCount, this.data[i].specialCollidingBlocks,
++                this.data[i].states.copy());
+         }
+         return new SnappedChunk(data);
+     }
+diff --git a/src/main/java/net/vansen/neonpaper/command/NeonCommand.java b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+index 20e43878ccd3036e917d30a32c80d5aaef86478e..0bd5c605c9066d94af9311a43503d26cc31caa67 100644
+--- a/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
++++ b/src/main/java/net/vansen/neonpaper/command/NeonCommand.java
+@@ -7,11 +7,18 @@ import com.mojang.serialization.Codec;
+ import com.mojang.serialization.DataResult;
+ import com.mojang.serialization.codecs.RecordCodecBuilder;
+ import net.kyori.adventure.text.Component;
++import net.kyori.adventure.text.event.ClickEvent;
++import net.kyori.adventure.text.event.HoverEvent;
+ import net.kyori.adventure.text.format.TextColor;
+ import net.minecraft.commands.CommandSourceStack;
+ import net.minecraft.commands.Commands;
+ import net.minecraft.core.BlockPos;
+-import net.minecraft.nbt.*;
++import net.minecraft.nbt.CompoundTag;
++import net.minecraft.nbt.ListTag;
++import net.minecraft.nbt.NbtAccounter;
++import net.minecraft.nbt.NbtIo;
++import net.minecraft.nbt.NbtOps;
++import net.minecraft.nbt.Tag;
+ import net.minecraft.server.level.DistanceManager;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.TicketType;
+@@ -19,23 +26,36 @@ import net.minecraft.util.Unit;
+ import net.minecraft.world.level.ChunkPos;
+ import net.minecraft.world.level.chunk.LevelChunk;
+ import net.vansen.neonpaper.NeonPaper;
++import net.vansen.neonpaper.auto.AutoRegeneration;
+ import net.vansen.neonpaper.chunk.SnappedChunk;
+ import net.vansen.neonpaper.config.ConfigVariables;
++import net.vansen.neonpaper.region.Regions;
++import net.vansen.neonpaper.util.TrioValue;
++import org.bukkit.Bukkit;
++import org.bukkit.Location;
++import org.bukkit.World;
+ import org.bukkit.command.CommandSender;
+ import org.bukkit.craftbukkit.CraftWorld;
+ import org.bukkit.entity.Player;
+ import org.jetbrains.annotations.NotNull;
++import org.jetbrains.annotations.Nullable;
+ 
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
+ import java.io.File;
+ import java.io.FileInputStream;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+-import java.util.*;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.UUID;
+ import java.util.concurrent.CompletableFuture;
+ 
+ public class NeonCommand {
+-    private static final File SNAP_DIR = new File("neon_snapshots");
+-    private static final HashMap<String, List<SnappedEntry>> SNAP_CACHE = new HashMap<>();
++    public static final File SNAP_DIR = new File("neon_snapshots");
++    private static final HashMap<String, CachedSnapshot> SNAP_CACHE = new HashMap<>();
+ 
+     public static final Codec<ChunkPos> CHUNKPOS_CODEC = RecordCodecBuilder.create(i -> i.group(
+         Codec.INT.fieldOf("x").forGetter(p -> p.x),
+@@ -49,6 +69,9 @@ public class NeonCommand {
+         ).apply(i, SnappedEntry::new));
+     }
+ 
++    public record CachedSnapshot(List<SnappedEntry> entries, BlockPos from, BlockPos to, String world) {
++    }
++
+     private static final Map<UUID, BlockPos> pos1Map = new HashMap<>();
+     private static final Map<UUID, BlockPos> pos2Map = new HashMap<>();
+ 
+@@ -59,10 +82,124 @@ public class NeonCommand {
+             .then(Commands.literal("reload")
+                 .executes(ctx -> {
+                     NeonPaper.load();
++                    AutoRegeneration.start();
+                     ctx.getSource().getBukkitSender().sendRichMessage("<#80d0ff>NeonPaper configuration reloaded.");
+                     return 1;
+                 }))
+ 
++            .then(Commands.literal("inside")
++                .then(Commands.argument("name", StringArgumentType.word())
++                    .suggests((ctx, builder) -> {
++                        Regions.snapshots()
++                            .stream()
++                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
++                            .forEach(builder::suggest);
++                        return builder.buildFuture();
++                    })
++                    .executes(ctx -> {
++                        CommandSender s = ctx.getSource().getBukkitSender();
++                        if (!(s instanceof Player p)) {
++                            s.sendRichMessage("<#ff388b>Only players.");
++                            return 0;
++                        }
++
++                        String name = StringArgumentType.getString(ctx, "name");
++                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
++                        if (meta == null) {
++                            s.sendRichMessage("<#ff388b>No metadata for that region.");
++                            return 0;
++                        }
++
++                        if (!p.getWorld().getName().equals(meta.third().getName())) {
++                            s.sendRichMessage("<#ff388b>You are not in the correct world.");
++                            return 0;
++                        }
++
++                        BlockPos min = meta.first();
++                        BlockPos max = meta.second();
++
++                        if (Regions.isIn(p.getLocation(), min, max)) {
++                            s.sendRichMessage("<#80d0ff>You are inside of the region '" + name + "'");
++                        } else {
++                            s.sendRichMessage("<#ff388b>You are outside of the region '" + name + "'");
++                            p.sendMessage(Component.text("Click here to teleport to the center of " + name + "!", TextColor.fromHexString("#80D0FF"))
++                                .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
++                                .hoverEvent(HoverEvent.showText(
++                                    Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
++                                )));
++                        }
++
++                        return 1;
++                    })))
++
++            .then(Commands.literal("tpcenter")
++                .then(Commands.argument("name", StringArgumentType.word())
++                    .suggests((ctx, builder) -> {
++                        Regions.snapshots()
++                            .stream()
++                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
++                            .forEach(builder::suggest);
++                        return builder.buildFuture();
++                    })
++                    .executes(ctx -> {
++                        Player p = ctx.getSource().getBukkitSender() instanceof Player player ? player : null;
++                        if (p == null) return 0;
++
++                        String name = StringArgumentType.getString(ctx, "name");
++                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
++                        if (meta == null) return 0;
++
++                        BlockPos min = meta.first();
++                        BlockPos max = meta.second();
++
++                        p.teleport(new Location(meta.third(),
++                            (min.getX() + max.getX()) / 2.0 + 0.5,
++                            (min.getY() + max.getY()) / 2.0,
++                            (min.getZ() + max.getZ()) / 2.0 + 0.5
++                        ));
++                        p.sendRichMessage("<#80d0ff>Teleported to the center of region " + name);
++                        return 1;
++                    })))
++
++            .then(Commands.literal("insideregions")
++                .executes(ctx -> {
++                    CommandSender s = ctx.getSource().getBukkitSender();
++                    if (!(s instanceof Player p)) {
++                        s.sendRichMessage("<#ff388b>Only players can use this command.");
++                        return 0;
++                    }
++
++                    List<String> insideRegions = new ArrayList<>();
++                    for (String name : Regions.snapshots()) {
++                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
++                        if (meta == null) continue;
++                        if (!p.getWorld().getName().equals(meta.third().getName())) continue;
++
++                        if (Regions.isIn(p.getLocation(), meta.first(), meta.second())) {
++                            insideRegions.add(name);
++                        }
++                    }
++
++                    if (insideRegions.isEmpty()) {
++                        p.sendRichMessage("<#ff388b>You are not inside any region.");
++                        return 1;
++                    }
++
++                    p.sendRichMessage("<#80d0ff>You are inside the following regions:");
++                    for (String name : insideRegions) {
++                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
++                        if (meta == null) continue;
++
++                        p.sendMessage(Component.text("- " + name, TextColor.fromHexString("#80D0FF"))
++                            .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
++                            .hoverEvent(HoverEvent.showText(
++                                Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
++                            )));
++                    }
++
++                    return 1;
++                }))
++
+             .then(Commands.literal("region")
+                 .then(Commands.literal("pos")
+                     .then(Commands.literal("1")
+@@ -85,33 +222,81 @@ public class NeonCommand {
+                                     IntegerArgumentType.getInteger(ctx, "x"),
+                                     IntegerArgumentType.getInteger(ctx, "z")))))))
+ 
+-                    .then(Commands.literal("save")
+-                        .then(Commands.argument("name", StringArgumentType.word())
+-                            .executes(ctx -> {
+-                                CommandSender s = ctx.getSource().getBukkitSender();
+-                                if (!(s instanceof Player p)) {
+-                                    s.sendRichMessage("<#ff388b>Only players.");
++                .then(Commands.literal("save")
++                    .then(Commands.argument("name", StringArgumentType.word())
++                        .executes(ctx -> {
++                            CommandSender s = ctx.getSource().getBukkitSender();
++                            if (!(s instanceof Player p)) {
++                                s.sendRichMessage("<#ff388b>Only players.");
++                                return 0;
++                            }
++
++                            if (!pos1Map.containsKey(p.getUniqueId()) || !pos2Map.containsKey(p.getUniqueId())) {
++                                s.sendRichMessage("<#ff388b>Both positions must be set first using /neonpaper pos 1 and /neonpaper pos 2.");
++                                return 0;
++                            }
++
++                            CompletableFuture.runAsync(() -> save(p, pos1Map.get(p.getUniqueId()), pos2Map.get(p.getUniqueId()), StringArgumentType.getString(ctx, "name")));
++                            return 1;
++                        })))
++
++                .then(Commands.literal("delete")
++                    .then(Commands.argument("name", StringArgumentType.word())
++                        .suggests((ctx, builder) -> {
++                            Regions.snapshots()
++                                .stream()
++                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
++                                .forEach(builder::suggest);
++                            return builder.buildFuture();
++                        })
++                        .executes(ctx -> {
++                            CommandSender s = ctx.getSource().getBukkitSender();
++                            String name = StringArgumentType.getString(ctx, "name");
++
++                            File nbtFile = new File(SNAP_DIR, name + ".nbt");
++                            File datFile = new File(SNAP_DIR, name + ".dat");
++
++                            SNAP_CACHE.remove(name);
++                            AutoRegeneration.remove(name);
++
++                            boolean existed = false;
++                            if (nbtFile.exists() && nbtFile.isFile()) {
++                                if (nbtFile.delete()) {
++                                    existed = true;
++                                } else {
++                                    s.sendRichMessage("<#ff388b>Could not delete snapshot file.");
+                                     return 0;
+                                 }
++                            }
+ 
+-                                if (!pos1Map.containsKey(p.getUniqueId()) || !pos2Map.containsKey(p.getUniqueId())) {
+-                                    s.sendRichMessage("<#ff388b>Both positions must be set first using /neonpaper pos 1 and /neonpaper pos 2.");
++                            if (datFile.exists() && datFile.isFile()) {
++                                if (datFile.delete()) {
++                                    existed = true;
++                                } else {
++                                    s.sendRichMessage("<#ff388b>Could not delete metadata file.");
+                                     return 0;
+                                 }
++                            }
+ 
+-                                CompletableFuture.runAsync(() -> save(p, pos1Map.get(p.getUniqueId()), pos2Map.get(p.getUniqueId()), StringArgumentType.getString(ctx, "name")));
+-                                return 1;
+-                            })))
++                            if (existed) {
++                                s.sendRichMessage("<#80d0ff>Deleted snapshot " + name);
++                            } else {
++                                s.sendRichMessage("<#ff388b>No snapshot with that name.");
++                            }
++                            return 1;
++                        })))
+ 
+                 .then(Commands.literal("paste")
+                     .then(Commands.argument("name", StringArgumentType.word())
++                        .suggests((ctx, builder) -> {
++                            Regions.snapshots()
++                                .stream()
++                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
++                                .forEach(builder::suggest);
++                            return builder.buildFuture();
++                        })
+                         .executes(ctx -> {
+-                            CommandSender s = ctx.getSource().getBukkitSender();
+-                            if (!(s instanceof Player p)) {
+-                                s.sendRichMessage("<#ff388b>Only players.");
+-                                return 0;
+-                            }
+-                            CompletableFuture.runAsync(() -> paste(p, StringArgumentType.getString(ctx, "name")));
++                            CompletableFuture.runAsync(() -> paste(ctx.getSource().getBukkitSender(), StringArgumentType.getString(ctx, "name")));
+                             return 1;
+                         })))), "neonpaper");
+     }
+@@ -144,7 +329,7 @@ public class NeonCommand {
+     }
+ 
+     @SuppressWarnings("ResultOfMethodCallIgnored")
+-    private static void save(@NotNull Player player, @NotNull BlockPos from, @NotNull BlockPos to, @NotNull String name) {
++    public static void save(@NotNull Player player, @NotNull BlockPos from, @NotNull BlockPos to, @NotNull String name) {
+         List<SnappedEntry> list = new ArrayList<>();
+ 
+         long start = System.currentTimeMillis();
+@@ -156,85 +341,118 @@ public class NeonCommand {
+         }
+ 
+         SNAP_DIR.mkdirs();
+-        File f = new File(SNAP_DIR, name + ".nbt");
+-
+-        DataResult<Tag> encoded = SnappedEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, list);
+-        if (encoded.result().isEmpty()) {
+-            player.sendRichMessage("<#ff388b>Encode failed: " + encoded.error().orElseThrow().message());
+-            return;
+-        }
+ 
+-        try (FileOutputStream out = new FileOutputStream(f)) {
+-            Tag tag = encoded.result().get();
++        File nbtFile = new File(SNAP_DIR, name + ".nbt");
++        try (FileOutputStream out = new FileOutputStream(nbtFile)) {
++            DataResult<Tag> encoded = SnappedEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, list);
++            if (encoded.result().isEmpty()) {
++                player.sendRichMessage("<#ff388b>Chunk encode failed: " + encoded.error().orElseThrow().message());
++                return;
++            }
+             CompoundTag root = new CompoundTag();
+-            root.put("entries", tag);
++            root.put("entries", encoded.result().get());
+             NbtIo.writeCompressed(root, out);
+         } catch (IOException e) {
+             player.sendRichMessage("<#ff388b>Save failed: " + e.getMessage());
+             return;
+         }
+ 
+-        player.sendRichMessage("<#a1ceff>Saved " + list.size() + " chunks to " + f.getName() + " in " + (System.currentTimeMillis() - start) + "ms");
+-    }
+-
+-    private static void paste(@NotNull Player player, @NotNull String name) {
+-        ServerLevel lvl = ((CraftWorld) player.getWorld()).getHandle();
+-        File f = new File(SNAP_DIR, name + ".nbt");
+-        if (!f.exists()) {
+-            player.sendRichMessage("<red>No file: " + f.getName());
++        File datFile = new File(SNAP_DIR, name + ".dat");
++        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(datFile))) {
++            out.writeUTF(player.getWorld().getName());
++            out.writeInt(from.getX());
++            out.writeInt(from.getY());
++            out.writeInt(from.getZ());
++            out.writeInt(to.getX());
++            out.writeInt(to.getY());
++            out.writeInt(to.getZ());
++        } catch (IOException e) {
++            player.sendRichMessage("<#ff388b>Metadata save failed: " + e.getMessage());
+             return;
+         }
+ 
+-        List<SnappedEntry> list;
++        player.sendRichMessage("<#a1ceff>Saved " + list.size() + " chunks to " + nbtFile.getName() + " in " + (System.currentTimeMillis() - start) + "ms");
++    }
++
++    public static @Nullable TrioValue<BlockPos, BlockPos, World> paste(@NotNull CommandSender sender, @NotNull String name) {
++        File nbtFile = new File(SNAP_DIR, name + ".nbt");
++        File datFile = new File(SNAP_DIR, name + ".dat");
+ 
++        if (!nbtFile.exists() || !datFile.exists()) {
++            sender.sendRichMessage("<red>No snapshot or metadata for " + name);
++            return null;
++        }
++
++        CachedSnapshot snapshot;
+         long startRead = System.currentTimeMillis();
+-        boolean fromCache = false;
++
+         if (SNAP_CACHE.containsKey(name)) {
+-            list = SNAP_CACHE.get(name);
+-            fromCache = true;
+-            player.sendMessage("");
+-            player.sendRichMessage("<#a1ceff>Using cached snapshot " + f.getName() + " with " + list.size() + " chunks.");
+-        }
+-        else {
+-            try (FileInputStream in = new FileInputStream(f)) {
+-                Tag entriesTag = NbtIo.readCompressed(in, NbtAccounter.unlimitedHeap()).get("entries");
+-                if (!(entriesTag instanceof ListTag)) {
+-                    player.sendRichMessage("<#ff388b>Invalid NBT format: 'entries' is not a list");
+-                    return;
++            snapshot = SNAP_CACHE.get(name);
++            sender.sendMessage("");
++            sender.sendRichMessage("<#a1ceff>Using cached snapshot " + name + " with " + snapshot.entries().size() + " chunks.");
++        } else {
++            List<SnappedEntry> entries;
++            try (FileInputStream in = new FileInputStream(nbtFile)) {
++                CompoundTag root = NbtIo.readCompressed(in, NbtAccounter.unlimitedHeap());
++                Tag tag = root.get("entries");
++                if (!(tag instanceof ListTag)) {
++                    sender.sendRichMessage("<#ff388b>Invalid NBT format: 'entries' is not a list");
++                    return null;
+                 }
+-
+-                DataResult<List<SnappedEntry>> decoded = SnappedEntry.CODEC.listOf().parse(NbtOps.INSTANCE, entriesTag);
++                DataResult<List<SnappedEntry>> decoded = SnappedEntry.CODEC.listOf().parse(NbtOps.INSTANCE, tag);
+                 if (decoded.result().isEmpty()) {
+-                    player.sendRichMessage("<#ff388b>Decode failed: " + decoded.error().get().message());
+-                    return;
++                    sender.sendRichMessage("<#ff388b>Chunk decode failed: " + decoded.error().get().message());
++                    return null;
+                 }
++                entries = decoded.result().get();
++            } catch (IOException e) {
++                sender.sendRichMessage("<#ff388b>Failed to read chunks: " + e.getMessage());
++                return null;
++            }
+ 
+-                list = decoded.result().get();
+-            } catch (Exception e) {
+-                player.sendRichMessage("<#ff388b>Load failed: " + e.getMessage());
+-                return;
++            BlockPos from, to;
++            String worldName;
++            try (DataInputStream in = new DataInputStream(new FileInputStream(datFile))) {
++                worldName = in.readUTF();
++                from = new BlockPos(in.readInt(), in.readInt(), in.readInt());
++                to = new BlockPos(in.readInt(), in.readInt(), in.readInt());
++            } catch (IOException e) {
++                sender.sendRichMessage("<#ff388b>Failed to read metadata: " + e.getMessage());
++                return null;
+             }
+-        }
+ 
+-        if (ConfigVariables.CACHE_CHUNK_DATA) SNAP_CACHE.putIfAbsent(name, list);
++            snapshot = new CachedSnapshot(entries, from, to, worldName);
+ 
+-        if (!fromCache) {
+-            player.sendMessage("");
+-            player.sendRichMessage("<#a1ceff>Loaded " + list.size() + " chunks from " + f.getName() + " in " + (System.currentTimeMillis() - startRead) + "ms");
++            if (ConfigVariables.CACHE_CHUNK_DATA) SNAP_CACHE.put(name, snapshot);
++
++            sender.sendMessage("");
++            sender.sendRichMessage("<#a1ceff>Loaded " + snapshot.entries().size() + " chunks from " +
++                nbtFile.getName() + " in " + (System.currentTimeMillis() - startRead) + "ms");
+         }
+ 
++        World world = Bukkit.getWorld(snapshot.world());
++        if (world == null) {
++            sender.sendRichMessage("<#ff388b>World not found: " + snapshot.world());
++            return null;
++        }
++
++        ServerLevel lvl = ((CraftWorld) world).getHandle();
+         DistanceManager dm = lvl.getChunkSource().chunkMap.distanceManager;
++
+         long startPaste = System.currentTimeMillis();
+-        for (SnappedEntry e : list) {
++        for (SnappedEntry e : snapshot.entries()) {
+             ChunkPos pos = e.pos();
+             if (ConfigVariables.ADD_TICKET_TO_CHUNKS)
+-                dm.addRegionTicketAtDistance(TicketType.REGEN, new ChunkPos(pos.x, pos.z), 2, Unit.INSTANCE);
++                dm.addRegionTicketAtDistance(TicketType.REGEN, pos, 2, Unit.INSTANCE);
+             lvl.setChunkAt(pos.x, pos.z, e.chunk());
+-            player.getWorld().refreshChunk(pos.x, pos.z);
++            world.refreshChunk(pos.x, pos.z);
+         }
+ 
+-        player.sendRichMessage("<#bb45ff>Pasted " + format((long) list.size() * 16 * 16 * 381) + " blocks" +
+-            " in " + (System.currentTimeMillis() - startPaste) + "ms (" + format((long) list.size() * 16 * 16 * 381 * 1000 / Math.max(1, System.currentTimeMillis() - startPaste)) + "/s)");
++        sender.sendRichMessage("<#bb45ff>Pasted " +
++            format((long) snapshot.entries().size() * 16 * 16 * 381) + " blocks in " + (System.currentTimeMillis() - startPaste) + "ms (" +
++            format((long) snapshot.entries().size() * 16 * 16 * 381 * 1000 / Math.max(1, System.currentTimeMillis() - startPaste)) + "/s)");
++
++        return TrioValue.of(snapshot.from(), snapshot.to(), world);
+     }
+ 
+     public static String format(long number) {
+diff --git a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+index c965c6bff9ce334da55e3ce971c15b6f2014f645..d5fc8c828ac4fcfa0054f2ef3b4f6b2d9ed12994 100644
+--- a/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
++++ b/src/main/java/net/vansen/neonpaper/config/DefaultConfig.java
+@@ -2,67 +2,173 @@ package net.vansen.neonpaper.config;
+ 
+ public class DefaultConfig {
+ 
+-    public static String VERSION = "1.0.3";
++    public static String VERSION = "1.0.4";
+ 
+     public static String CONFIG = """
+-    // NeonPaper Configuration
+-    
+-    // Do not change this
+-    version = "%s"
+-    
+-    commands {
+-        testing_command = false // Enable the testing command. This command is used for testing purposes only, or benchmarking.
+-        neonpaper_command = true // Main command, for saving and pasting regions
+-    }
+-    
+-    general {
+-        // Log filter to disable the block entity logs (caused by the changing chunk data)
+-        // They are really not relevant and can spam the console
+-        // THOUGH, IF THERE IS A ACTUAL BUG IN YOUR SERVER, YOU MAY NOT KNOW IT!
+-        // Recommended
+-        filter_out_invalid_logs = true
+-    }
+-    
+-    performance {
+-        // If true, regenerating an region will add a ticket to all chunks in the region
+-        // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
+-        // This will make sure the chunks are loaded as fast as possible
+-        // However, its only good if you regenerate regions often, otherwise its just not worth it
+-        // Recommended if you have large region that are regenerated often
+-        add_ticket_to_chunks = false
+-    
+-        // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
+-        // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
+-        cache_chunk_data = false
+-    
+-        // The method used to copy chunk section data when regenerating or pasting chunks.
+-        // There are three possible modes for now:
++        // NeonPaper Configuration
++        
++        // Do not change this
++        version = "%s"
++        
++        commands {
++            testing_command = false // Enable the testing command. This command is used for testing purposes only, or benchmarking.
++            neonpaper_command = true // Main command, for saving and pasting regions
++        }
++        
++        general {
++            // Log filter to disable the block entity logs (caused by the changing chunk data)
++            // They are really not relevant and can spam the console
++            // THOUGH, IF THERE IS A ACTUAL BUG IN YOUR SERVER, YOU MAY NOT KNOW IT!
++            // Recommended
++            filter_out_invalid_logs = true
++        }
++        
++        performance {
++            // If true, regenerating an region will add a ticket to all chunks in the region
++            // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
++            // This will make sure the chunks are loaded as fast as possible
++            // However, its only good if you regenerate regions often, otherwise its just not worth it
++            // Recommended if you have large region that are regenerated often
++            add_ticket_to_chunks = false
++        
++            // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
++            // Recommended if you have a decent amount of RAM to spare, and you regenerate regions often
++            cache_chunk_data = false
++        
++            // The method used to copy chunk section data when regenerating or pasting chunks.
++            // There are three possible modes for now:
++            //
++            //   raw
++            //     This is the fastest method, directly calling PalettedContainer.copy().
++            //     However, it has a serious downside: in many cases the copied section
++            //     ends up incomplete or broken. The most common symptom is that after
++            //     pasting, certain sections in specific chunks refuse to accept block changes (you can’t place blocks in them).
++            //     Use this only if you dont need to place blocks in the pasted region.
++            //
++            //   direct
++            //     This is the default. It manually rebuilds the palette and storage from
++            //     the source section. The result is usually safe - block placement and
++            //     editing works as expected. Performance is much faster than packed, and
++            //     very good for real-world use. This is the recommended option unless
++            //     you absolutely need guaranteed 100 correctness from vanilla code paths.
++            //
++            //   packed
++            //     This is the safest but slowest. It works by using the built-in pack()
++            //     and unpack() methods. It usually guarantees correct results in every
++            //     case. The downside is that it is ALOT slower than raw/direct (10b/s -> 500m/s).
++            //     however, its still really fast when taken in context of plugins.
++            //     This is recommended if you experience issues with "direct" mode, and don't need the extreme performance.
++            //
++            // Recommended: "direct" - Good performance and usually safe
++            // If you experience issues with it, try "packed"
++            // If you dont need to place blocks in the pasted region, use "raw" for best performance
++            chunk_setting_method = "direct"
++        }
++        
++        // Auto Regeneration
++        // Each arena can have its own regeneration settings. The options are:
+         //
+-        //   raw
+-        //     This is the fastest method, directly calling PalettedContainer.copy().
+-        //     However, it has a serious downside: in many cases the copied section
+-        //     ends up incomplete or broken. The most common symptom is that after
+-        //     pasting, certain sections in specific chunks refuse to accept block changes (you can’t place blocks in them).
+-        //     Use this only if you dont need to place blocks in the pasted region.
++        // enabled
++        //   Whether auto regeneration is active for this arena.
+         //
+-        //   direct
+-        //     This is the default. It manually rebuilds the palette and storage from
+-        //     the source section. The result is usually safe - block placement and
+-        //     editing works as expected. Performance is much faster than packed, and
+-        //     very good for real-world use. This is the recommended option unless
+-        //     you absolutely need guaranteed 100 correctness from vanilla code paths.
++        // snapshot
++        //   The name of the saved NBT snapshot file to paste.
+         //
+-        //   packed
+-        //     This is the safest but slowest. It works by using the built-in pack()
+-        //     and unpack() methods. It usually guarantees correct results in every
+-        //     case. The downside is that it is ALOT slower than raw/direct (10b/s -> 500m/s).
+-        //     however, its still really fast when taken in context of plugins.
+-        //     This is recommended if you experience issues with "direct" mode, and don't need the extreme performance.
++        // time
++        //   time_unit: S = seconds, M = minutes, H = hours, D = days
++        //   duration: How long to wait between regenerations in the specified unit
+         //
+-        // Recommended: "direct" - Good performance and usually safe
+-        // If you experience issues with it, try "packed"
+-        // If you dont need to place blocks in the pasted region, use "raw" for best performance
+-        chunk_setting_method = "direct"
+-    }
+-    """.formatted(VERSION);
++        // broadcast
++        //   message: The message to display after regenerating. Supports MiniMessage and multiple lines using <newline>
++        //   type: message = sends the message to players, actionbar, action_bar = shows in players' action bars, both = both
++        //   to: arena = only to players inside arena bounds
++        //       world = all players in the world
++        //       global = all online players
++        //
++        // sounds
++        //   sound: The Bukkit sound to play after regenerating, see https://jd.papermc.io/paper/1.21.1/org/bukkit/Sound.html for a list of sounds
++        //   volume: Volume of the sound
++        //   pitch: Pitch of the sound
++        //   to: arena/world/global (same as broadcast)
++        //
++        // ticking
++        //   enabled: Whether ticking messages are active
++        //   value: Number of seconds before regeneration to start showing "tick" messages
++        //          Example: value = 5 means 5 seconds countdown before regen triggers
++        //   message: The message shown each second during ticking. Supports <count> placeholder
++        //            which is replaced with remaining seconds.
++        //   type: BROADCAST or ACTIONBAR (or BOTH)
++        //   to: arena/world/global (same as broadcast)
++        // Explanation:
++        //   The ticking system is like a countdown before the arena regeneration occurs.
++        //   Each second during the last 'value' seconds, a message is sent to players according
++        //   to the specified 'to' and 'type'. For example, if value = 5, players will see messages
++        //   for 5, 4, 3, 2, 1 seconds remaining before the arena regenerates.
++        //   This is useful to warn players that blocks are about to reset.
++        regeneration {
++           arena {
++             xyz {
++               enabled = false
++               snapshot = "xyz"
++               time {
++                 time_unit = "H"
++                 duration = 1
++               }
++               broadcast {
++                 message = [
++                   "<gray>Regenerated arena XYZ..."
++                 ]
++                 type = "message"
++                 to = "arena"
++               }
++               sounds {
++                 sound = "ENTITY_PLAYER_LEVELUP"
++                 volume = 1.0
++                 pitch = 1.0
++                 to = "arena"
++               }
++               ticking {
++                 enabled = true
++                 value = 5
++                 message = [
++                   "<gray>Regenerating in <count>..."
++                 ]
++                 type = "message"
++                 to = "arena"
++               }
++             }
++        
++             xyz2 {
++               enabled = false
++               snapshot = "xyz_2"
++               time {
++                 time_unit = "M"
++                 duration = 10
++               }
++               broadcast {
++                 message = [
++                   "<gray>Regenerating arena XYZ 2..."
++                 ]
++                 type = "message"
++                 to = "arena"
++               }
++               sounds {
++                 sound = "ENTITY_PLAYER_LEVELUP"
++                 volume = 1.0
++                 pitch = 1.0
++                 to = "arena"
++               }
++               ticking {
++                 enabled = true
++                 value = 5
++                 message = [
++                   "<gray>Regenerating in <count>..."
++                 ]
++                 type = "message"
++                 to = "arena"
++               }
++             }
++           }
++         }
++        """.formatted(VERSION);
+ }
+diff --git a/src/main/java/net/vansen/neonpaper/region/Regions.java b/src/main/java/net/vansen/neonpaper/region/Regions.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..c616e3461d94adb4aa4ce8fd9db0a3e4ba98c924
+--- /dev/null
++++ b/src/main/java/net/vansen/neonpaper/region/Regions.java
+@@ -0,0 +1,64 @@
++package net.vansen.neonpaper.region;
++
++import net.minecraft.core.BlockPos;
++import net.vansen.neonpaper.NeonPaper;
++import net.vansen.neonpaper.util.TrioValue;
++import org.bukkit.Bukkit;
++import org.bukkit.Location;
++import org.bukkit.World;
++import org.jetbrains.annotations.NotNull;
++import org.jetbrains.annotations.Nullable;
++
++import java.io.DataInputStream;
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++
++import static net.vansen.neonpaper.command.NeonCommand.SNAP_DIR;
++
++public class Regions {
++
++    public static List<String> snapshots() {
++        List<String> list = new ArrayList<>();
++        if (!SNAP_DIR.exists() || !SNAP_DIR.isDirectory()) return list;
++        File[] files = SNAP_DIR.listFiles((dir, name) -> name.endsWith(".nbt"));
++        if (files == null) return list;
++        for (File f : files) {
++            if (f.isFile()) {
++                String n = f.getName();
++                list.add(n.substring(0, n.length() - 4));
++            }
++        }
++        return list;
++    }
++
++    public static boolean isIn(@NotNull Location location, @NotNull BlockPos pos1, @NotNull BlockPos pos2) {
++        return location.getX() >= Math.min(pos1.getX(), pos2.getX()) && location.getX() <= Math.max(pos1.getX(), pos2.getX()) &&
++            location.getZ() >= Math.min(pos1.getZ(), pos2.getZ()) && location.getZ() <= Math.max(pos1.getZ(), pos2.getZ());
++    }
++
++    public static @Nullable TrioValue<BlockPos, BlockPos, World> metadata(@NotNull String name) {
++        File datFile = new File(SNAP_DIR, name + ".dat");
++        if (!datFile.exists()) return null;
++
++        try (DataInputStream in = new DataInputStream(new FileInputStream(datFile))) {
++            String worldName = in.readUTF();
++            BlockPos from = new BlockPos(in.readInt(), in.readInt(), in.readInt());
++            BlockPos to = new BlockPos(in.readInt(), in.readInt(), in.readInt());
++
++            World world = Bukkit.getWorld(worldName);
++            if (world == null) return null;
++
++            return TrioValue.of(from, to, world);
++        } catch (IOException e) {
++            NeonPaper.LOGGER.error("Could not read region metadata for snapshot '{}'", name, e);
++            return null;
++        }
++    }
++
++    public static boolean exists(String name) {
++        return new File(SNAP_DIR, name + ".nbt").isFile();
++    }
++}
+diff --git a/src/main/java/net/vansen/neonpaper/util/TrioValue.java b/src/main/java/net/vansen/neonpaper/util/TrioValue.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..665a2a68c49a4f5dc58c83b5fed8d5e12682d040
+--- /dev/null
++++ b/src/main/java/net/vansen/neonpaper/util/TrioValue.java
+@@ -0,0 +1,10 @@
++package net.vansen.neonpaper.util;
++
++import org.jetbrains.annotations.NotNull;
++
++public record TrioValue<A, B, C>(@NotNull A first, @NotNull B second, @NotNull C third) {
++
++    public static <A, B, C> TrioValue<A, B, C> of(@NotNull A first, @NotNull B second, @NotNull C third) {
++        return new TrioValue<>(first, second, third);
++    }
++}
