@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Tue, 16 Sep 2025 00:17:03 +0530
+Subject: [PATCH] Regenerate async in auto regeneration
+
+
+diff --git a/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java b/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java
+index ad65ae1776a10422078bfec1248511c930f7a578..49f842a14f405d2e95d4edad00eed426038de4b4 100644
+--- a/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java
++++ b/src/main/java/net/vansen/neonpaper/auto/AutoRegeneration.java
+@@ -22,6 +22,7 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import java.util.concurrent.CompletableFuture;
+ 
+ public class AutoRegeneration {
+ 
+@@ -86,7 +87,7 @@ public class AutoRegeneration {
+                         }
+ 
+                         if (now >= runAt) {
+-                            MinecraftServer.getServer().executor.execute(() -> regenerate(cfg));
++                            regenerate(cfg);
+                             long intervalMs = time(cfg.getFursConfig("time")) * 50L;
+                             next.put(arenaId, now + intervalMs);
+                             sentTicks.remove(arenaId);
+@@ -111,14 +112,18 @@ public class AutoRegeneration {
+     }
+ 
+     private static void regenerate(@NotNull FursConfig arenaCfg) {
+-        TrioValue<BlockPos, BlockPos, World> trioValue = NeonCommand.paste(Bukkit.getConsoleSender(), arenaCfg.getString("snapshot"));
+-        if (trioValue == null) {
+-            NeonPaper.LOGGER.error("Auto regeneration failed: Could not paste snapshot '{}'.", arenaCfg.getString("snapshot"));
+-            return;
+-        }
++        CompletableFuture.runAsync(() -> {
++            TrioValue<BlockPos, BlockPos, World> trioValue = NeonCommand.paste(Bukkit.getConsoleSender(), arenaCfg.getString("snapshot"));
++            if (trioValue == null) {
++                NeonPaper.LOGGER.error("Auto regeneration failed: Could not paste snapshot '{}'.", arenaCfg.getString("snapshot"));
++                return;
++            }
+ 
+-        broadcast(arenaCfg.getFursConfig("broadcast"), trioValue);
+-        sounds(arenaCfg.getFursConfig("sounds"), trioValue);
++            MinecraftServer.getServer().executor.execute(() -> {
++                broadcast(arenaCfg.getFursConfig("broadcast"), trioValue);
++                sounds(arenaCfg.getFursConfig("sounds"), trioValue);
++            });
++        });
+     }
+ 
+     private static void broadcast(@NotNull FursConfig cfg, @NotNull TrioValue<BlockPos, BlockPos, World> trioValue) {
