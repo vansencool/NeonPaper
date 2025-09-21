@@ -12,8 +12,6 @@ import net.vansen.neonpaper.command.NeonCommand;
 import net.vansen.neonpaper.region.Regions;
 import net.vansen.neonpaper.util.TrioValue;
 import org.bukkit.Bukkit;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -143,18 +141,11 @@ public class AutoRegeneration {
 
     private static void sounds(@NotNull FursConfig cfg, @NotNull TrioValue<BlockPos, BlockPos, World> trioValue) {
         Sound sound;
-        String soundName = cfg.getString("sound");
-        if (soundName == null) return;
-
         try {
-            sound = Registry.SOUNDS.get(NamespacedKey.minecraft(soundName.toLowerCase()));
-            if (sound == null) {
-                NeonPaper.LOGGER.warn("Invalid sound '{}', skipping...", soundName);
-                return;
-            }
-        } catch (Exception e) {
-            NeonPaper.LOGGER.warn("Error loading sound '{}', skipping...", soundName);
-            return;
+            // noinspection removal
+            sound = Sound.valueOf(cfg.getString("sound").toUpperCase());
+        } catch (IllegalArgumentException e) {
+            NeonPaper.LOGGER.warn("Invalid sound '{}', skipping...", cfg.getString("sound")); return;
         }
 
         float volume = (float) cfg.getDouble("volume", 1.0);
