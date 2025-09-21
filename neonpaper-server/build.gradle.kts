@@ -26,6 +26,17 @@ paperweight {
     minecraftVersion = providers.gradleProperty("mcVersion")
     gitFilePatches = false
 
+    val fork = forks.register("neonpaper") {
+        upstream.patchDir("paperServer") {
+            upstreamPath = "paper-server"
+            excludes = setOf("src/minecraft", "patches", "build.gradle.kts")
+            patchesDir = rootDirectory.dir("neonpaper-server/paper-patches")
+            outputDir = rootDirectory.dir("paper-server")
+        }
+    }
+
+    activeFork = fork
+
     spigot {
         enabled = true
         buildDataRef = "436eac9815c211be1a2a6ca0702615f995e81c44"
@@ -107,7 +118,20 @@ if (project.providers.gradleProperty("publishDevBundle").isPresent) {
     }
 }
 
-val log4jPlugins = sourceSets.create("log4jPlugins")
+sourceSets {
+    main {
+        java { srcDir("../paper-server/src/main/java") }
+        resources { srcDir("../paper-server/src/main/resources") }
+    }
+    test {
+        java { srcDir("../paper-server/src/test/java") }
+        resources { srcDir("../paper-server/src/test/resources") }
+    }
+}
+
+val log4jPlugins = sourceSets.create("log4jPlugins") {
+    java { srcDir("../paper-server/src/log4jPlugins/java") }
+}
 configurations.named(log4jPlugins.compileClasspathConfigurationName) {
     extendsFrom(configurations.compileClasspath.get())
 }
@@ -129,7 +153,7 @@ abstract class MockitoAgentProvider : CommandLineArgumentProvider {
 }
 
 dependencies {
-    implementation(project(":neonpaper-api"))
+    implementation(project(":neonpaper-api")) // NeonPaper
     implementation("ca.spottedleaf:concurrentutil:0.0.3")
     implementation("org.jline:jline-terminal-ffm:3.27.1") // use ffm on java 22+
     implementation("org.jline:jline-terminal-jni:3.27.1") // fall back to jni on java 21
@@ -204,14 +228,14 @@ tasks.jar {
         val gitBranch = git.exec(providers, "rev-parse", "--abbrev-ref", "HEAD").get().trim()
         attributes(
             "Main-Class" to "org.bukkit.craftbukkit.Main",
-            "Implementation-Title" to "Paper",
+            "Implementation-Title" to "NeonPaper",
             "Implementation-Version" to implementationVersion,
             "Implementation-Vendor" to date,
-            "Specification-Title" to "Paper",
+            "Specification-Title" to "NeonPaper",
             "Specification-Version" to project.version,
-            "Specification-Vendor" to "Paper Team",
-            "Brand-Id" to "papermc:paper",
-            "Brand-Name" to "Paper",
+            "Specification-Vendor" to "NeonPaper Team",
+            "Brand-Id" to "neonpaper:neonpaper",
+            "Brand-Name" to "NeonPaper",
             "Build-Number" to (build ?: ""),
             "Build-Time" to buildTime.toString(),
             "Git-Branch" to gitBranch,
@@ -270,7 +294,7 @@ tasks.test {
     jvmArgumentProviders.add(provider)
 }
 
-val generatedDir: java.nio.file.Path = layout.projectDirectory.dir("src/generated/java").asFile.toPath()
+val generatedDir: java.nio.file.Path = rootProject.layout.projectDirectory.dir("paper-server/src/generated/java").asFile.toPath()
 idea {
     module {
         generatedSourceDirs.add(generatedDir.toFile())
