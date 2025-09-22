@@ -23,7 +23,7 @@ paperweight {
             upstreamPath = "paper-api"
             excludes = setOf("build.gradle.kts")
             patchesDir = file("neonpaper-api/paper-patches")
-            outputDir = file("paper-api")
+            outputDir = file("neonpaper-api")
         }
     }
 }
