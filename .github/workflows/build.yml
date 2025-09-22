@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ "1.21.8" ]
+    branches: [ "1.21.4" ]
 
 jobs:
   build:
@@ -28,20 +28,20 @@ jobs:
           git config --global user.name "Github Action"
 
       - name: Apply patches
-        run: ./gradlew -Dorg.gradle.jvmargs="-Dgraal.CompilerConfiguration=enterprise -Dgraal.UsePriorityInlining=true -Dgraal.Vectorization=true -Dgraal.OptDuplication=true --add-modules jdk.incubator.vector" applyAllPatches --stacktrace --no-daemon
+        run: ./gradlew -Dorg.gradle.jvmargs="-Dgraal.CompilerConfiguration=enterprise -Dgraal.UsePriorityInlining=true -Dgraal.Vectorization=true -Dgraal.OptDuplication=true --add-modules jdk.incubator.vector" applyAllPatches applyPaperApiPatches --stacktrace --no-daemon
 
       - name: Create MojmapPaperclipJar
         run: ./gradlew -Dorg.gradle.jvmargs="-Dgraal.CompilerConfiguration=enterprise -Dgraal.UsePriorityInlining=true -Dgraal.Vectorization=true -Dgraal.OptDuplication=true --add-modules jdk.incubator.vector" createMojmapPaperclipJar --stacktrace --no-daemon
 
       - name: Rename Paperclip Jar
-        run: mv build/libs/neonpaper-paperclip-1.21.8-R0.1-SNAPSHOT-mojmap.jar ./neonpaper-1.21.8.jar
+        run: mv build/libs/neonpaper-paperclip-1.21.4-R0.1-SNAPSHOT-mojmap.jar ./neonpaper-1.21.4.jar
 
       - name: Get Previous Release Commit
         id: get_prev_release
         run: |
           set -e
           
-          PREV_COMMIT_JSON=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/ver-1.21.8 2>/dev/null || true)
+          PREV_COMMIT_JSON=$(gh api /repos/vansencool/NeonPaper/git/ref/tags/ver-1.21.4 2>/dev/null || true)
           if echo "$PREV_COMMIT_JSON" | grep -q '"object"'; then
             PREV_COMMIT=$(echo "$PREV_COMMIT_JSON" | jq -r '.object.sha')
             echo "Tag found. Commit: $PREV_COMMIT"
@@ -136,19 +136,19 @@ jobs:
       - name: Delete previous release and tag if exists
         run: |
           set -e
-          gh release delete ver-1.21.8 --yes || true
-          git tag -d ver-1.21.8 || true
-          git push --delete origin ver-1.21.8 || true
+          gh release delete ver-1.21.4 --yes || true
+          git tag -d ver-1.21.4 || true
+          git push --delete origin ver-1.21.4 || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release NeonPaper
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ver-1.21.8
-          name: "NeonPaper 1.21.8"
+          tag_name: ver-1.21.4
+          name: "NeonPaper 1.21.4"
           body: "${{ steps.generate_changelog.outputs.CHANGELOG }}"
           draft: false
           prerelease: false
-          files: neonpaper-1.21.8.jar
+          files: neonpaper-1.21.4.jar
           make_latest: true

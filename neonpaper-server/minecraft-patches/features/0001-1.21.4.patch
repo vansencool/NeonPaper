@@ -1,41 +1,24 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: vansencool <vansencool@gmail.com>
-Date: Sun, 21 Sep 2025 21:29:31 +0530
-Subject: [PATCH] initial update
+Date: Mon, 22 Sep 2025 22:59:59 +0530
+Subject: [PATCH] 1.21.4
 
 
 diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
-index ec1cced129ef42be65d7b2b622638bfae8bd895e..62214674d7d2d9244deaff10bef93dd825fab121 100644
+index f8969a68cd352ce4fe5109205e78f5e19ab6e020..ecc74fa4ab6a17227e16660d005dd48b23f40862 100644
 --- a/net/minecraft/commands/Commands.java
 +++ b/net/minecraft/commands/Commands.java
-@@ -25,6 +25,8 @@ import java.util.function.UnaryOperator;
- import java.util.stream.Collectors;
- import java.util.stream.Stream;
- import javax.annotation.Nullable;
-+
-+import net.vansen.neonpaper.NeonPaper;
- import net.minecraft.ChatFormatting;
- import net.minecraft.SharedConstants;
- import net.minecraft.Util;
-@@ -40,7 +42,6 @@ import net.minecraft.gametest.framework.TestCommand;
- import net.minecraft.network.chat.ClickEvent;
- import net.minecraft.network.chat.CommonComponents;
- import net.minecraft.network.chat.Component;
--import net.minecraft.network.chat.ComponentUtils;
- import net.minecraft.network.chat.HoverEvent;
- import net.minecraft.network.chat.MutableComponent;
- import net.minecraft.network.protocol.game.ClientboundCommandsPacket;
-@@ -252,6 +253,8 @@ public class Commands {
+@@ -221,6 +221,8 @@ public class Commands {
              JfrCommand.register(this.dispatcher);
          }
  
-+        NeonPaper.registerDefaults(this.dispatcher); // NeonPaper
++        net.vansen.neonpaper.NeonPaper.registerDefaults(this.dispatcher); // NeonPaper
 +
          if (SharedConstants.IS_RUNNING_IN_IDE) {
+             TestCommand.register(this.dispatcher);
              RaidCommand.register(this.dispatcher, context);
-             DebugPathCommand.register(this.dispatcher);
 diff --git a/net/minecraft/server/Main.java b/net/minecraft/server/Main.java
-index fd3553bdc1c3cdbf6aa3dc00e0a4987f8eaa4fb8..a3eb3a6969b62f31b91651d6fb6aca09bc1fdcde 100644
+index 9aa664537cc37e44db46d5a2a64ae3116938c681..955a8a2814c43775ffe5f5ffb890321802d47d21 100644
 --- a/net/minecraft/server/Main.java
 +++ b/net/minecraft/server/Main.java
 @@ -1,6 +1,5 @@
@@ -60,7 +43,7 @@ index fd3553bdc1c3cdbf6aa3dc00e0a4987f8eaa4fb8..a3eb3a6969b62f31b91651d6fb6aca09
  import net.minecraft.SharedConstants;
  import net.minecraft.SuppressForbidden;
  import net.minecraft.Util;
-@@ -109,6 +106,8 @@ public class Main {
+@@ -108,6 +105,8 @@ public class Main {
                  JvmProfiler.INSTANCE.start(Environment.SERVER);
              }
  
@@ -70,10 +53,10 @@ index fd3553bdc1c3cdbf6aa3dc00e0a4987f8eaa4fb8..a3eb3a6969b62f31b91651d6fb6aca09
              Bootstrap.bootStrap();
              Bootstrap.validate();
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index 7aac2a6889af3edaebfaf94deecbf00d00758b68..96e121850ae64cc94dbd6104ef0d821cc5201f3a 100644
+index ae220a732c78ab076261f20b5a54c71d7fceb407..45a79eb10ccdd8559d5ce3e0cc7c3b070d584d32 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
-@@ -41,7 +41,6 @@ import java.util.UUID;
+@@ -42,7 +42,6 @@ import java.util.UUID;
  import java.util.Map.Entry;
  import java.util.concurrent.CompletableFuture;
  import java.util.concurrent.Executor;
@@ -113,7 +96,7 @@ index 7aac2a6889af3edaebfaf94deecbf00d00758b68..96e121850ae64cc94dbd6104ef0d821c
  import org.slf4j.Logger;
  
  public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTask> implements ServerInfo, ChunkIOErrorReporter, CommandSource, ca.spottedleaf.moonrise.patches.chunk_system.server.ChunkSystemMinecraftServer { // Paper - rewrite chunk system
-@@ -1198,6 +1195,8 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+@@ -1197,6 +1194,8 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
              }
              // Paper end - Add onboarding message for initial server start
  
@@ -123,57 +106,22 @@ index 7aac2a6889af3edaebfaf94deecbf00d00758b68..96e121850ae64cc94dbd6104ef0d821c
                  long l;
                  if (!this.isPaused() && this.tickRateManager.isSprinting() && this.tickRateManager.checkShouldSprintThisTick()) {
 diff --git a/net/minecraft/server/level/TicketType.java b/net/minecraft/server/level/TicketType.java
-index 6a7dae136691fb2476633fa12897424daa6bb5b3..c4bed3fb9836b1a533a82bd95fd20ee08f47c1e0 100644
+index 8f12a4df5d63ecd11e6e615d910b6e3f6dde5f3c..8bc8fa5bd0760d4e1c19ccaa7f1382e0765105f1 100644
 --- a/net/minecraft/server/level/TicketType.java
 +++ b/net/minecraft/server/level/TicketType.java
-@@ -56,6 +56,7 @@ public final class TicketType<T> implements ca.spottedleaf.moonrise.patches.chun
-     public static final TicketType PLUGIN_TICKET = register("plugin_ticket", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING_AND_SIMULATION); static { ((TicketType<org.bukkit.plugin.Plugin>)PLUGIN_TICKET).moonrise$setIdentifierComparator((org.bukkit.plugin.Plugin p1, org.bukkit.plugin.Plugin p2) -> p1.getName().compareTo(p2.getName())); } // Paper // Paper - rewrite chunk system
-     public static final TicketType FUTURE_AWAIT = register("future_await", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING_AND_SIMULATION); // Paper
-     public static final TicketType CHUNK_LOAD = register("chunk_load", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING); // Paper - moonrise
-+    public static final TicketType REGEN = register("regen", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING_AND_SIMULATION); // NeonPaper
+@@ -21,6 +21,7 @@ public class TicketType<T> {
+     public static final TicketType<Unit> PLUGIN = TicketType.create("plugin", (a, b) -> 0); // CraftBukkit
+     public static final TicketType<org.bukkit.plugin.Plugin> PLUGIN_TICKET = TicketType.create("plugin_ticket", (plugin1, plugin2) -> plugin1.getClass().getName().compareTo(plugin2.getClass().getName())); // CraftBukkit
+     public static final TicketType<Integer> POST_TELEPORT = TicketType.create("post_teleport", Integer::compare, 5); // Paper - post teleport ticket type
++    public static final TicketType<Unit> REGEN = TicketType.create("regen", (a, b) -> 0, 0); // NeonPaper
  
-     public static TicketType register(String name, long timeout, boolean persist, TicketType.TicketUse use) {
-         return Registry.register(BuiltInRegistries.TICKET_TYPE, name, new TicketType(timeout, persist, use));
+     public static <T> TicketType<T> create(String name, Comparator<T> comparator) {
+         return new TicketType<>(name, comparator, 0L);
 diff --git a/net/minecraft/world/level/Level.java b/net/minecraft/world/level/Level.java
-index be16627136f7b3979e62308f58b96a2b16ee9f62..8110e9c3db947d9276169f301238cbe2da007563 100644
+index 1dbe7c7c1051c3972105534a07ce50d4cf98fc85..034153d5517fa57649f9213896ddeabd431f4878 100644
 --- a/net/minecraft/world/level/Level.java
 +++ b/net/minecraft/world/level/Level.java
-@@ -4,16 +4,16 @@ import com.google.common.collect.Lists;
- import com.mojang.serialization.Codec;
- import java.io.IOException;
- import java.util.Collection;
--import java.util.Iterator;
- import java.util.List;
- import java.util.UUID;
- import java.util.function.Consumer;
- import java.util.function.Predicate;
- import java.util.stream.Collectors;
- import javax.annotation.Nullable;
-+
-+import net.vansen.neonpaper.config.ConfigVariables;
- import net.minecraft.CrashReport;
- import net.minecraft.CrashReportCategory;
--import net.minecraft.ReportedException;
- import net.minecraft.core.BlockPos;
- import net.minecraft.core.Direction;
- import net.minecraft.core.Holder;
-@@ -31,7 +31,6 @@ import net.minecraft.server.level.FullChunkStatus;
- import net.minecraft.sounds.SoundEvent;
- import net.minecraft.sounds.SoundEvents;
- import net.minecraft.sounds.SoundSource;
--import net.minecraft.util.AbortableIterationConsumer;
- import net.minecraft.util.Mth;
- import net.minecraft.util.RandomSource;
- import net.minecraft.util.StringRepresentable;
-@@ -44,7 +43,6 @@ import net.minecraft.world.damagesource.DamageSources;
- import net.minecraft.world.entity.Entity;
- import net.minecraft.world.entity.EntitySelector;
- import net.minecraft.world.entity.boss.EnderDragonPart;
--import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
- import net.minecraft.world.entity.player.Player;
- import net.minecraft.world.item.ItemStack;
- import net.minecraft.world.item.alchemy.PotionBrewing;
-@@ -62,6 +60,9 @@ import net.minecraft.world.level.block.state.BlockState;
+@@ -61,6 +61,9 @@ import net.minecraft.world.level.block.state.BlockState;
  import net.minecraft.world.level.border.WorldBorder;
  import net.minecraft.world.level.chunk.ChunkAccess;
  import net.minecraft.world.level.chunk.LevelChunk;
@@ -183,15 +131,15 @@ index be16627136f7b3979e62308f58b96a2b16ee9f62..8110e9c3db947d9276169f301238cbe2
  import net.minecraft.world.level.chunk.status.ChunkStatus;
  import net.minecraft.world.level.dimension.DimensionType;
  import net.minecraft.world.level.entity.EntityTypeTest;
-@@ -87,6 +88,7 @@ import net.minecraft.world.scores.Scoreboard;
- // CraftBukkit start
- import java.util.Map;
- import net.minecraft.server.level.ServerLevel;
+@@ -92,6 +95,7 @@ import net.minecraft.network.protocol.game.ClientboundSetBorderWarningDelayPacke
+ import net.minecraft.network.protocol.game.ClientboundSetBorderWarningDistancePacket;
+ import net.minecraft.world.level.border.BorderChangeListener;
+ import net.minecraft.world.level.dimension.LevelStem;
 +import net.vansen.neonpaper.chunk.SnappedChunk;
+ import org.bukkit.Bukkit;
  import org.bukkit.craftbukkit.CraftServer;
  import org.bukkit.craftbukkit.CraftWorld;
- import org.bukkit.craftbukkit.block.CraftBlockState;
-@@ -1942,6 +1944,64 @@ public abstract class Level implements LevelAccessor, UUIDLookup<Entity>, AutoCl
+@@ -1091,6 +1095,64 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
          }
      }
  
@@ -238,7 +186,7 @@ index be16627136f7b3979e62308f58b96a2b16ee9f62..8110e9c3db947d9276169f301238cbe2
 +            SnappedChunk.SnappedSectionData data = chunk.data()[i];
 +            if (section.hasOnlyAir() && data.nonEmptyBlockCount() == 0) continue;
 +
-+            switch (ConfigVariables.CHUNK_SETTING_METHOD) {
++            switch (net.vansen.neonpaper.config.ConfigVariables.CHUNK_SETTING_METHOD) {
 +                case "direct" -> section.states = direct(data.states());
 +                case "raw" -> section.states = data.states().copy();
 +                case "packed" -> section.states = packed(data.states());
@@ -253,35 +201,14 @@ index be16627136f7b3979e62308f58b96a2b16ee9f62..8110e9c3db947d9276169f301238cbe2
 +    }
 +    // NeonPaper end
 +
-     @Nullable
-     public abstract MapItemSavedData getMapData(MapId mapId);
- 
-diff --git a/net/minecraft/world/level/block/entity/BlockEntity.java b/net/minecraft/world/level/block/entity/BlockEntity.java
-index 5986825d6a381eeb445dd424dd127864aa703163..0a673fa197325ef944c53b1eef70eac0bf2790ef 100644
---- a/net/minecraft/world/level/block/entity/BlockEntity.java
-+++ b/net/minecraft/world/level/block/entity/BlockEntity.java
-@@ -32,6 +32,7 @@ import net.minecraft.world.level.storage.TagValueInput;
- import net.minecraft.world.level.storage.TagValueOutput;
- import net.minecraft.world.level.storage.ValueInput;
- import net.minecraft.world.level.storage.ValueOutput;
-+import net.vansen.neonpaper.config.ConfigVariables;
- import org.slf4j.Logger;
- 
- public abstract class BlockEntity {
-@@ -200,7 +201,7 @@ public abstract class BlockEntity {
-     public static BlockEntity loadStatic(BlockPos pos, BlockState state, CompoundTag tag, HolderLookup.Provider registries) {
-         BlockEntityType<?> blockEntityType = tag.read("id", TYPE_CODEC).orElse(null);
-         if (blockEntityType == null) {
--            LOGGER.error("Skipping block entity with invalid type: {}", tag.get("id"));
-+            if (!ConfigVariables.FILTER_OUT_INVALID_LOGS) LOGGER.error("Skipping block entity with invalid type: {}", tag.get("id")); // NeonPaper
-             return null;
-         } else {
-             BlockEntity blockEntity;
+     @Override
+     public boolean setBlock(BlockPos pos, BlockState newState, int flags) {
+         return this.setBlock(pos, newState, flags, 512);
 diff --git a/net/minecraft/world/level/chunk/ChunkAccess.java b/net/minecraft/world/level/chunk/ChunkAccess.java
-index 182c14b660f8860bed627eed4e01fd4002153e9a..34c44809e1ac1c7280e8d70a510cb1a6b84511ec 100644
+index 6d565b52552534ce9cacfc35ad1bf4adcb69eac3..d8d36552d296aceb0bd97804cd017625473c64a5 100644
 --- a/net/minecraft/world/level/chunk/ChunkAccess.java
 +++ b/net/minecraft/world/level/chunk/ChunkAccess.java
-@@ -56,6 +56,7 @@ import net.minecraft.world.level.lighting.ChunkSkyLightSources;
+@@ -55,6 +55,7 @@ import net.minecraft.world.level.lighting.ChunkSkyLightSources;
  import net.minecraft.world.level.material.Fluid;
  import net.minecraft.world.ticks.SavedTick;
  import net.minecraft.world.ticks.TickContainerAccess;
@@ -289,8 +216,8 @@ index 182c14b660f8860bed627eed4e01fd4002153e9a..34c44809e1ac1c7280e8d70a510cb1a6
  import org.slf4j.Logger;
  
  public abstract class ChunkAccess implements BiomeManager.NoiseBiomeSource, LightChunk, StructureAccess, ca.spottedleaf.moonrise.patches.starlight.chunk.StarlightChunk { // Paper - rewrite chunk system
-@@ -587,6 +588,24 @@ public abstract class ChunkAccess implements BiomeManager.NoiseBiomeSource, Ligh
-         return problemPath(this.getPos());
+@@ -576,6 +577,24 @@ public abstract class ChunkAccess implements BiomeManager.NoiseBiomeSource, Ligh
+         return null; // Paper - rewrite chunk system
      }
  
 +    // NeonPaper start
@@ -311,41 +238,34 @@ index 182c14b660f8860bed627eed4e01fd4002153e9a..34c44809e1ac1c7280e8d70a510cb1a6
 +    }
 +    // NeonPaper end
 +
-     record ChunkPathElement(ChunkPos pos) implements ProblemReporter.PathElement {
-         @Override
-         public String get() {
+     public record PackedTicks(List<SavedTick<Block>> blocks, List<SavedTick<Fluid>> fluids) {
+     }
+ }
 diff --git a/net/minecraft/world/level/chunk/LevelChunk.java b/net/minecraft/world/level/chunk/LevelChunk.java
-index 75578e6ed7233a03d9b6cd3c6d3997f1c6148392..bbe5a465c1db4d5704cd91604a83e647499d6c31 100644
+index 761fdcd4a4e18f45547afd8edff44f61c6eeacb4..c7c4c6afcbdf1d7f6a65b34b2c2785b3fa99a1ee 100644
 --- a/net/minecraft/world/level/chunk/LevelChunk.java
 +++ b/net/minecraft/world/level/chunk/LevelChunk.java
-@@ -53,6 +53,7 @@ import net.minecraft.world.level.material.Fluids;
- import net.minecraft.world.level.storage.TagValueInput;
- import net.minecraft.world.ticks.LevelChunkTicks;
- import net.minecraft.world.ticks.TickContainerAccess;
-+import net.vansen.neonpaper.config.ConfigVariables;
- import org.slf4j.Logger;
- 
- public class LevelChunk extends ChunkAccess implements ca.spottedleaf.moonrise.patches.chunk_system.level.chunk.ChunkSystemLevelChunk, ca.spottedleaf.moonrise.patches.starlight.chunk.StarlightChunk, ca.spottedleaf.moonrise.patches.getblock.GetBlockChunk { // Paper - rewrite chunk system // Paper - get block chunk optimisation
-@@ -802,7 +803,7 @@ public class LevelChunk extends ChunkAccess implements ca.spottedleaf.moonrise.p
+@@ -792,7 +792,7 @@ public class LevelChunk extends ChunkAccess implements ca.spottedleaf.moonrise.p
                  blockEntity = ((EntityBlock)blockState.getBlock()).newBlockEntity(pos, blockState);
              } else {
                  blockEntity = null;
 -                LOGGER.warn("Tried to load a DUMMY block entity @ {} but found not block entity block {} at location", pos, blockState);
-+                if (ConfigVariables.FILTER_OUT_INVALID_LOGS) LOGGER.warn("Tried to load a DUMMY block entity @ {} but found not block entity block {} at location", pos, blockState); // NeonPaper
++                if (!net.vansen.neonpaper.config.ConfigVariables.FILTER_OUT_INVALID_LOGS) LOGGER.warn("Tried to load a DUMMY block entity @ {} but found not block entity block {} at location", pos, blockState); // NeonPaper
              }
          } else {
              blockEntity = BlockEntity.loadStatic(pos, blockState, tag, this.level.registryAccess());
-@@ -933,7 +934,7 @@ public class LevelChunk extends ChunkAccess implements ca.spottedleaf.moonrise.p
+@@ -922,7 +922,8 @@ public class LevelChunk extends ChunkAccess implements ca.spottedleaf.moonrise.p
                              LevelChunk.this.removeBlockEntity(this.getPos());
                              if (!this.loggedInvalidBlockState) {
                                  this.loggedInvalidBlockState = true;
 -                                LevelChunk.LOGGER.warn("Block entity {} @ {} state {} invalid for ticking:", LogUtils.defer(this::getType), LogUtils.defer(this::getPos), blockState);
-+                                if (ConfigVariables.FILTER_OUT_INVALID_LOGS) LevelChunk.LOGGER.warn("Block entity {} @ {} state {} invalid for ticking:", LogUtils.defer(this::getType), LogUtils.defer(this::getPos), blockState); // NeonPaper
++                                if (!net.vansen.neonpaper.config.ConfigVariables.FILTER_OUT_INVALID_LOGS)
++                                    LevelChunk.LOGGER.warn("Block entity {} @ {} state {} invalid for ticking:", LogUtils.defer(this::getType), LogUtils.defer(this::getPos), blockState); // NeonPaper
                              }
                              // Paper end - Remove the Block Entity if it's invalid
                          }
 diff --git a/net/minecraft/world/level/chunk/LevelChunkSection.java b/net/minecraft/world/level/chunk/LevelChunkSection.java
-index df717c545472006b99532280c38c1fbef12bcf82..e46abf682324f613cb24f0ab5c08055bbb7c394c 100644
+index 412e7b1cf8c24f0ddf6d174967bedad576f10aba..15b07ec8f249521c3a84f62b959b16ec640f4986 100644
 --- a/net/minecraft/world/level/chunk/LevelChunkSection.java
 +++ b/net/minecraft/world/level/chunk/LevelChunkSection.java
 @@ -21,7 +21,7 @@ public class LevelChunkSection implements ca.spottedleaf.moonrise.patches.block_
@@ -397,10 +317,10 @@ index df717c545472006b99532280c38c1fbef12bcf82..e46abf682324f613cb24f0ab5c08055b
 +    // NeonPaper end
  }
 diff --git a/net/minecraft/world/level/chunk/PalettedContainer.java b/net/minecraft/world/level/chunk/PalettedContainer.java
-index a251ba67644cd02a0b00d7c8b0e2c64aa5e26291..d3a6689e8052dc5a8b1a4d4390ebefdf44070fc2 100644
+index f5da433050fd3060e0335d4002d520ebe8cd691f..3a1ac6e83ab32e91122b187648baf75a09372b9f 100644
 --- a/net/minecraft/world/level/chunk/PalettedContainer.java
 +++ b/net/minecraft/world/level/chunk/PalettedContainer.java
-@@ -27,9 +27,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
+@@ -28,9 +28,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
      private static final int MIN_PALETTE_BITS = 0;
      private final PaletteResize<T> dummyPaletteResize = (bits, objectAdded) -> 0;
      public final IdMap<T> registry;
@@ -412,7 +332,7 @@ index a251ba67644cd02a0b00d7c8b0e2c64aa5e26291..d3a6689e8052dc5a8b1a4d4390ebefdf
      //private final ThreadingDetector threadingDetector = new ThreadingDetector("PalettedContainer"); // Paper - unused
  
      public void acquire() {
-@@ -302,9 +302,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
+@@ -303,9 +303,9 @@ public class PalettedContainer<T> implements PaletteResize<T>, PalettedContainer
          }
      }
  

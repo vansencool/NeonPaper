@@ -1,11 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: vansencool <vansencool@gmail.com>
-Date: Sun, 21 Sep 2025 20:09:01 +0530
-Subject: [PATCH] 1.21.8 dev
+Date: Mon, 22 Sep 2025 22:07:02 +0530
+Subject: [PATCH] rebrand
 
 
 diff --git a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java b/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
-index 74ffdc823e66fc5ec027c4b7c462382bcbfe2be2..1a06a605c0f1a766113743a18add19c3336aa00c 100644
+index 790bad0494454ca12ee152e3de6da3da634d9b20..3e7e7cb390c0309768b6f5a0d216289c3cd60023 100644
 --- a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
 +++ b/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
 @@ -30,7 +30,7 @@ public record ServerBuildInfoImpl(
@@ -23,8 +23,8 @@ index 74ffdc823e66fc5ec027c4b7c462382bcbfe2be2..1a06a605c0f1a766113743a18add19c3
              getManifestAttribute(manifest, ATTRIBUTE_BRAND_NAME)
 -                .orElse(BRAND_PAPER_NAME),
 +                .orElse(BRAND_NEONPAPER_NAME), // NeonPaper
-             SharedConstants.getCurrentVersion().id(),
-             SharedConstants.getCurrentVersion().name(),
+             SharedConstants.getCurrentVersion().getId(),
+             SharedConstants.getCurrentVersion().getName(),
              getManifestAttribute(manifest, ATTRIBUTE_BUILD_NUMBER)
 @@ -61,7 +61,7 @@ public record ServerBuildInfoImpl(
  
@@ -35,3 +35,16 @@ index 74ffdc823e66fc5ec027c4b7c462382bcbfe2be2..1a06a605c0f1a766113743a18add19c3
      }
  
      @Override
+diff --git a/src/main/java/org/bukkit/craftbukkit/util/Versioning.java b/src/main/java/org/bukkit/craftbukkit/util/Versioning.java
+index 774556a62eb240da42e84db4502e2ed43495be17..ae30d321fbb87b45d7b4be0d1a0a2c5f70bcf6fa 100644
+--- a/src/main/java/org/bukkit/craftbukkit/util/Versioning.java
++++ b/src/main/java/org/bukkit/craftbukkit/util/Versioning.java
+@@ -11,7 +11,7 @@ public final class Versioning {
+     public static String getBukkitVersion() {
+         String result = "Unknown-Version";
+ 
+-        InputStream stream = Bukkit.class.getClassLoader().getResourceAsStream("META-INF/maven/io.papermc.paper/paper-api/pom.properties");
++        InputStream stream = Bukkit.class.getClassLoader().getResourceAsStream("META-INF/maven/net.vansen.neonpaper/neonpaper-api/pom.properties");
+         Properties properties = new Properties();
+ 
+         if (stream != null) {

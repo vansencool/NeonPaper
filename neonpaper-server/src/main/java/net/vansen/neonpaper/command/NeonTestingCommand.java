@@ -8,13 +8,11 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.TextColor;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.DistanceManager;
-import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
+import net.minecraft.util.Unit;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -154,7 +152,7 @@ public class NeonTestingCommand {
                 for (int dz = -radius; dz <= radius; dz++) {
                     int cx = originCX + dx;
                     int cz = originCZ + dz;
-                    dm.ticketStorage.addTicket(new Ticket<>(TicketType.REGEN, ChunkLevel.byStatus(FullChunkStatus.FULL)), new ChunkPos(cx, cz));
+                    dm.addRegionTicket(TicketType.REGEN, new ChunkPos(cx, cz), 33, Unit.INSTANCE);
                     LevelChunk ca = level.getChunk(cx, cz);
                     chunksToUse.add(ca);
                     cleanSnapshots.put(cx + "," + cz, ca.snap());
@@ -227,7 +225,7 @@ public class NeonTestingCommand {
             player.sendRichMessage("<gray>Total time: <white>" + String.format("%.2f", totalMs) + "</white> ms");
 
             for (LevelChunk chunk : chunksToUse) {
-                dm.ticketStorage.removeTicket(new Ticket<>(TicketType.REGEN, ChunkLevel.byStatus(FullChunkStatus.FULL)), chunk.getPos());
+                dm.removeRegionTicket(TicketType.REGEN, chunk.getPos(), 33, Unit.INSTANCE);
             }
         });
     }

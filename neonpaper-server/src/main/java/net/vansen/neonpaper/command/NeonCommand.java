@@ -19,12 +19,10 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.DistanceManager;
-import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
+import net.minecraft.util.Unit;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.vansen.neonpaper.NeonPaper;
@@ -444,8 +442,7 @@ public class NeonCommand {
         long startPaste = System.currentTimeMillis();
         for (SnappedEntry e : snapshot.entries()) {
             ChunkPos pos = e.pos();
-            if (ConfigVariables.ADD_TICKET_TO_CHUNKS)
-                dm.ticketStorage.addTicket(new Ticket<>(TicketType.REGEN, ChunkLevel.byStatus(FullChunkStatus.FULL)), pos);
+            if (ConfigVariables.ADD_TICKET_TO_CHUNKS) dm.addRegionTicket(TicketType.REGEN, e.pos, 33, Unit.INSTANCE);
             lvl.setChunkAt(pos.x, pos.z, e.chunk());
             world.refreshChunk(pos.x, pos.z);
         }
