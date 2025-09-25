@@ -28,7 +28,7 @@ public class Regions {
         for (File f : files) {
             if (f.isFile()) {
                 String n = f.getName();
-                list.add(n.substring(0, n.length() - 4));
+                list.add(n.substring(0, n.length() - 5));
             }
         }
         return list;
@@ -58,7 +58,7 @@ public class Regions {
         }
     }
 
-    public static boolean exists(String name) {
+    public static boolean exists(@NotNull String name) {
         return new File(SNAP_DIR, name + ".lnbt").isFile();
     }
 }

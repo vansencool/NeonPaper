@@ -112,7 +112,7 @@ public class NeonCommand {
                                 .executes(ctx -> {
                                     CommandSender s = ctx.getSource().getBukkitSender();
                                     if (!(s instanceof Player p)) {
-                                        s.sendRichMessage("<#ff388b>Only players.");
+                                        s.sendRichMessage("<#ff388b>[neonpaper inside] Only players.");
                                         return 0;
                                     }
 
@@ -175,8 +175,11 @@ public class NeonCommand {
                                     return builder.buildFuture();
                                 })
                                 .executes(ctx -> {
-                                    Player p = ctx.getSource().getBukkitSender() instanceof Player player ? player : null;
-                                    if (p == null) return 0;
+                                    CommandSender s = ctx.getSource().getBukkitSender();
+                                    if (!(s instanceof Player p)) {
+                                        s.sendRichMessage("<#ff388b>[neonpaper tpcenter] Only players can use this command.");
+                                        return 0;
+                                    }
 
                                     String name = StringArgumentType.getString(ctx, "name");
                                     TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
@@ -198,7 +201,7 @@ public class NeonCommand {
                         .executes(ctx -> {
                             CommandSender s = ctx.getSource().getBukkitSender();
                             if (!(s instanceof Player p)) {
-                                s.sendRichMessage("<#ff388b>Only players can use this command.");
+                                s.sendRichMessage("<#ff388b>[neonpaper insideregions] Only players can use this command.");
                                 return 0;
                             }
 
@@ -236,31 +239,50 @@ public class NeonCommand {
                 .then(Commands.literal("region")
                         .then(Commands.literal("pos")
                                 .then(Commands.literal("1")
-                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1, null, null))
+                                        .executes(ctx -> {
+                                            CommandSender s = ctx.getSource().getBukkitSender();
+                                            if (!(s instanceof Player p)) {
+                                                s.sendRichMessage("<#ff388b>[neonpaper region pos 1] Only players.");
+                                                return 0;
+                                            }
+                                            return pos(s, 1, p.getLocation().getBlockX(), p.getLocation().getBlockY(), p.getLocation().getBlockZ());
+                                        })
                                         .then(Commands.argument("x", IntegerArgumentType.integer())
-                                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
-                                                        IntegerArgumentType.getInteger(ctx, "x"), null))
-                                                .then(Commands.argument("z", IntegerArgumentType.integer())
-                                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
-                                                                IntegerArgumentType.getInteger(ctx, "x"),
-                                                                IntegerArgumentType.getInteger(ctx, "z"))))))
-
+                                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                                .executes(ctx -> pos(
+                                                                        ctx.getSource().getBukkitSender(),
+                                                                        1,
+                                                                        IntegerArgumentType.getInteger(ctx, "x"),
+                                                                        IntegerArgumentType.getInteger(ctx, "y"),
+                                                                        IntegerArgumentType.getInteger(ctx, "z")
+                                                                ))))))
                                 .then(Commands.literal("2")
-                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2, null, null))
+                                        .executes(ctx -> {
+                                            CommandSender s = ctx.getSource().getBukkitSender();
+                                            if (!(s instanceof Player p)) {
+                                                s.sendRichMessage("<#ff388b>[neonpaper region pos 2] Only players.");
+                                                return 0;
+                                            }
+                                            return pos(s, 2, p.getLocation().getBlockX(), p.getLocation().getBlockY(), p.getLocation().getBlockZ());
+                                        })
                                         .then(Commands.argument("x", IntegerArgumentType.integer())
-                                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
-                                                        IntegerArgumentType.getInteger(ctx, "x"), null))
-                                                .then(Commands.argument("z", IntegerArgumentType.integer())
-                                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
-                                                                IntegerArgumentType.getInteger(ctx, "x"),
-                                                                IntegerArgumentType.getInteger(ctx, "z")))))))
+                                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                                .executes(ctx -> pos(
+                                                                        ctx.getSource().getBukkitSender(),
+                                                                        2,
+                                                                        IntegerArgumentType.getInteger(ctx, "x"),
+                                                                        IntegerArgumentType.getInteger(ctx, "y"),
+                                                                        IntegerArgumentType.getInteger(ctx, "z")
+                                                                )))))))
 
                         .then(Commands.literal("save")
                                 .then(Commands.argument("name", StringArgumentType.word())
                                         .executes(ctx -> {
                                             CommandSender s = ctx.getSource().getBukkitSender();
                                             if (!(s instanceof Player p)) {
-                                                s.sendRichMessage("<#ff388b>Only players.");
+                                                s.sendRichMessage("<#ff388b>[neonpaper region save] Only players.");
                                                 return 0;
                                             }
 
@@ -334,15 +356,13 @@ public class NeonCommand {
                                         }))));
     }
 
-    private static int pos(@NotNull CommandSender sender, int slot, Integer x, Integer z) {
+    private static int pos(@NotNull CommandSender sender, int slot, int x, int y, int z) {
         if (!(sender instanceof Player p)) {
-            sender.sendRichMessage("<#ff388b>Only players.");
+            sender.sendRichMessage("<#ff388b>[neonpaper region pos " + slot + "] Only players.");
             return 0;
         }
 
-        BlockPos old = (slot == 1 ? pos1Map.get(p.getUniqueId()) : pos2Map.get(p.getUniqueId()));
-
-        BlockPos newPos = new BlockPos(x != null ? x : p.getLocation().getBlockX(), old != null ? old.getY() : p.getLocation().getBlockY(), z != null ? z : p.getLocation().getBlockZ());
+        BlockPos newPos = new BlockPos(x, y, z);
         if (slot == 1) pos1Map.put(p.getUniqueId(), newPos);
         else pos2Map.put(p.getUniqueId(), newPos);
 
@@ -365,16 +385,18 @@ public class NeonCommand {
     public static void save(@NotNull Player player, @NotNull BlockPos from, @NotNull BlockPos to, @NotNull String name) {
         List<SnappedEntry> list = new ArrayList<>();
 
-        long start = System.currentTimeMillis();
+        long startLoad = System.currentTimeMillis();
         for (int cx = Math.min(from.getX() >> 4, to.getX() >> 4); cx <= Math.max(from.getX() >> 4, to.getX() >> 4); cx++) {
             for (int cz = Math.min(from.getZ() >> 4, to.getZ() >> 4); cz <= Math.max(from.getZ() >> 4, to.getZ() >> 4); cz++) {
                 LevelChunk chunk = ((CraftWorld) player.getWorld()).getHandle().getChunk(cx, cz);
                 list.add(new SnappedEntry(new ChunkPos(cx, cz), chunk.snap()));
             }
         }
+        player.sendRichMessage("<#a1ceff>Loaded " + list.size() + " chunks in " + (System.currentTimeMillis() - startLoad) + "ms, now saving...");
 
         SNAP_DIR.mkdirs();
 
+        long start = System.currentTimeMillis();
         File nbtFile = new File(SNAP_DIR, name + ".lnbt");
         try (DataOutputStream dos = new DataOutputStream(new LZ4FrameOutputStream(new FileOutputStream(nbtFile)))) {
             DataResult<Tag> encoded = SnappedEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, list);
