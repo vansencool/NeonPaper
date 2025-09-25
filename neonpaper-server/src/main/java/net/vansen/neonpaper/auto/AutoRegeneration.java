@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+@SuppressWarnings({"BusyWait", "deprecation"})
 public class AutoRegeneration {
 
     private static final Map<String, FursConfig> active = new HashMap<>();
@@ -142,7 +143,6 @@ public class AutoRegeneration {
     private static void sounds(@NotNull FursConfig cfg, @NotNull TrioValue<BlockPos, BlockPos, World> trioValue) {
         Sound sound;
         try {
-            // noinspection removal
             sound = Sound.valueOf(cfg.getString("sound").toUpperCase());
         } catch (IllegalArgumentException e) {
             NeonPaper.LOGGER.warn("Invalid sound '{}', skipping...", cfg.getString("sound")); return;

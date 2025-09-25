@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Unit;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.vansen.neonpaper.NeonPaper;
@@ -196,14 +197,14 @@ public class NeonTestingCommand {
             try {
                 for (int i = 0; i < runs; i++) {
                     for (LevelChunk chunk : chunksToUse) {
-                        level.setChunkAt(chunk, airSnapshot);
+                        Level.setChunkAt(chunk, airSnapshot);
                         player.getWorld().refreshChunk(chunk.getPos().x, chunk.getPos().z);
                     }
                     Thread.sleep(2000);
 
                     long start = System.nanoTime();
                     for (LevelChunk chunk : chunksToUse)
-                        level.setChunkAt(chunk, cleanSnapshots.get(chunk.getPos().x + "," + chunk.getPos().z));
+                        Level.setChunkAt(chunk, cleanSnapshots.get(chunk.getPos().x + "," + chunk.getPos().z));
                     long end = System.nanoTime();
 
                     totalRestore.addAndGet(end - start);
@@ -214,7 +215,7 @@ public class NeonTestingCommand {
                     Thread.sleep(2000);
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to benchmark", e);
+                NeonPaper.LOGGER.error("Benchmark failed", e);
             }
             double totalMs = totalRestore.get() / 1_000_000.0;
             player.sendRichMessage("<green>Benchmark complete!</green>");

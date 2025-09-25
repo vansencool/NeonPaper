@@ -6,7 +6,6 @@ build
 
 /run
 
-/neonpaper-server/build.gradle.kts
 /paper-server
 /neonpaper-api/build.gradle.kts
 /paper-api

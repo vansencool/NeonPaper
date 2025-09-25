@@ -3,9 +3,12 @@ package net.vansen.neonpaper.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -29,6 +32,7 @@ import net.vansen.neonpaper.NeonPaper;
 import net.vansen.neonpaper.auto.AutoRegeneration;
 import net.vansen.neonpaper.chunk.SnappedChunk;
 import net.vansen.neonpaper.config.ConfigVariables;
+import net.vansen.neonpaper.regeneration.PendingChunks;
 import net.vansen.neonpaper.region.Regions;
 import net.vansen.neonpaper.util.TrioValue;
 import org.bukkit.Bukkit;
@@ -55,6 +59,7 @@ import java.util.concurrent.CompletableFuture;
 
 public class NeonCommand {
     public static final File SNAP_DIR = new File("neon_snapshots");
+    public static final File BACKUP_DIR = new File(SNAP_DIR, "nbtbackups");
     private static final HashMap<String, CachedSnapshot> SNAP_CACHE = new HashMap<>();
 
     public static final Codec<ChunkPos> CHUNKPOS_CODEC = RecordCodecBuilder.create(i -> i.group(
@@ -76,229 +81,257 @@ public class NeonCommand {
     private static final Map<UUID, BlockPos> pos2Map = new HashMap<>();
 
     public static void register(@NotNull CommandDispatcher<CommandSourceStack> dispatcher) {
-        NeonPaper.register(dispatcher, Commands.literal("neonpaper")
-            .requires(stack -> stack.getBukkitSender().hasPermission("neonpaper.use"))
+        NeonPaper.register(dispatcher, command("neonpaper"), "neonpaper");
+        NeonPaper.register(dispatcher, command("np"), "neonpaper");
+        NeonPaper.register(dispatcher, command("neon"), "neonpaper");
+        NeonPaper.register(dispatcher, command("neonp"), "neonpaper");
 
-            .then(Commands.literal("reload")
-                .executes(ctx -> {
-                    NeonPaper.load();
-                    AutoRegeneration.start();
-                    ctx.getSource().getBukkitSender().sendRichMessage("<#80d0ff>NeonPaper configuration reloaded.");
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> command(String cname) {
+        return Commands.literal(cname)
+                .requires(stack -> stack.getBukkitSender().hasPermission("neonpaper.use"))
+
+                .then(Commands.literal("reload")
+                        .executes(ctx -> {
+                            NeonPaper.load();
+                            AutoRegeneration.start();
+                            ctx.getSource().getBukkitSender().sendRichMessage("<#80d0ff>NeonPaper configuration reloaded.");
+                            return 1;
+                        }))
+
+                .then(Commands.literal("inside")
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> {
+                                    Regions.snapshots()
+                                            .stream()
+                                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                            .forEach(builder::suggest);
+                                    return builder.buildFuture();
+                                })
+                                .executes(ctx -> {
+                                    CommandSender s = ctx.getSource().getBukkitSender();
+                                    if (!(s instanceof Player p)) {
+                                        s.sendRichMessage("<#ff388b>Only players.");
+                                        return 0;
+                                    }
+
+                                    String name = StringArgumentType.getString(ctx, "name");
+                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                    if (meta == null) {
+                                        s.sendRichMessage("<#ff388b>No metadata for that region.");
+                                        return 0;
+                                    }
+
+                                    if (!p.getWorld().getName().equals(meta.third().getName())) {
+                                        s.sendRichMessage("<#ff388b>You are not in the correct world.");
+                                        return 0;
+                                    }
+
+                                    BlockPos min = meta.first();
+                                    BlockPos max = meta.second();
+
+                                    if (Regions.isIn(p.getLocation(), min, max)) {
+                                        s.sendRichMessage("<#80d0ff>You are inside of the region '" + name + "'");
+                                    } else {
+                                        s.sendRichMessage("<#ff388b>You are outside of the region '" + name + "'");
+                                        p.sendMessage(Component.text("Click here to teleport to the center of " + name + "!", TextColor.fromHexString("#80D0FF"))
+                                                .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
+                                                .hoverEvent(HoverEvent.showText(
+                                                        Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
+                                                )));
+                                    }
+
+                                    return 1;
+                                })))
+
+                .then(Commands.literal("flushmap").executes(ctx -> {
+                    CompletableFuture.runAsync(() -> {
+                        long start = System.nanoTime();
+                        PendingChunks.flush();
+                        long timeMs = (System.nanoTime() - start) / 1_000_000;
+                        ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Flushed pending chunks in " + timeMs + "ms");
+                    });
                     return 1;
                 }))
 
-            .then(Commands.literal("inside")
-                .then(Commands.argument("name", StringArgumentType.word())
-                    .suggests((ctx, builder) -> {
-                        Regions.snapshots()
-                            .stream()
-                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                            .forEach(builder::suggest);
-                        return builder.buildFuture();
-                    })
-                    .executes(ctx -> {
-                        CommandSender s = ctx.getSource().getBukkitSender();
-                        if (!(s instanceof Player p)) {
-                            s.sendRichMessage("<#ff388b>Only players.");
-                            return 0;
-                        }
-
-                        String name = StringArgumentType.getString(ctx, "name");
-                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                        if (meta == null) {
-                            s.sendRichMessage("<#ff388b>No metadata for that region.");
-                            return 0;
-                        }
-
-                        if (!p.getWorld().getName().equals(meta.third().getName())) {
-                            s.sendRichMessage("<#ff388b>You are not in the correct world.");
-                            return 0;
-                        }
-
-                        BlockPos min = meta.first();
-                        BlockPos max = meta.second();
-
-                        if (Regions.isIn(p.getLocation(), min, max)) {
-                            s.sendRichMessage("<#80d0ff>You are inside of the region '" + name + "'");
-                        } else {
-                            s.sendRichMessage("<#ff388b>You are outside of the region '" + name + "'");
-                            p.sendMessage(Component.text("Click here to teleport to the center of " + name + "!", TextColor.fromHexString("#80D0FF"))
-                                .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
-                                .hoverEvent(HoverEvent.showText(
-                                    Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
-                                )));
-                        }
-
-                        return 1;
-                    })))
-
-            .then(Commands.literal("tpcenter")
-                .then(Commands.argument("name", StringArgumentType.word())
-                    .suggests((ctx, builder) -> {
-                        Regions.snapshots()
-                            .stream()
-                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                            .forEach(builder::suggest);
-                        return builder.buildFuture();
-                    })
-                    .executes(ctx -> {
-                        Player p = ctx.getSource().getBukkitSender() instanceof Player player ? player : null;
-                        if (p == null) return 0;
-
-                        String name = StringArgumentType.getString(ctx, "name");
-                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                        if (meta == null) return 0;
-
-                        BlockPos min = meta.first();
-                        BlockPos max = meta.second();
-
-                        p.teleport(new Location(meta.third(),
-                            (min.getX() + max.getX()) / 2.0 + 0.5,
-                            (min.getY() + max.getY()) / 2.0,
-                            (min.getZ() + max.getZ()) / 2.0 + 0.5
-                        ));
-                        p.sendRichMessage("<#80d0ff>Teleported to the center of region " + name);
-                        return 1;
-                    })))
-
-            .then(Commands.literal("insideregions")
-                .executes(ctx -> {
-                    CommandSender s = ctx.getSource().getBukkitSender();
-                    if (!(s instanceof Player p)) {
-                        s.sendRichMessage("<#ff388b>Only players can use this command.");
-                        return 0;
-                    }
-
-                    List<String> insideRegions = new ArrayList<>();
-                    for (String name : Regions.snapshots()) {
-                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                        if (meta == null) continue;
-                        if (!p.getWorld().getName().equals(meta.third().getName())) continue;
-
-                        if (Regions.isIn(p.getLocation(), meta.first(), meta.second())) {
-                            insideRegions.add(name);
-                        }
-                    }
-
-                    if (insideRegions.isEmpty()) {
-                        p.sendRichMessage("<#ff388b>You are not inside any region.");
-                        return 1;
-                    }
-
-                    p.sendRichMessage("<#80d0ff>You are inside the following regions:");
-                    for (String name : insideRegions) {
-                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                        if (meta == null) continue;
-
-                        p.sendMessage(Component.text("- " + name, TextColor.fromHexString("#80D0FF"))
-                            .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
-                            .hoverEvent(HoverEvent.showText(
-                                Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
-                            )));
-                    }
-
+                .then(Commands.literal("loadmap").executes(ctx -> {
+                    CompletableFuture.runAsync(() -> {
+                        long start = System.nanoTime();
+                        PendingChunks.load();
+                        long timeMs = (System.nanoTime() - start) / 1_000_000;
+                        ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Loaded pending chunks in " + timeMs + "ms");
+                    });
                     return 1;
                 }))
 
-            .then(Commands.literal("region")
-                .then(Commands.literal("pos")
-                    .then(Commands.literal("1")
-                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1, null, null))
-                        .then(Commands.argument("x", IntegerArgumentType.integer())
-                            .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
-                                IntegerArgumentType.getInteger(ctx, "x"), null))
-                            .then(Commands.argument("z", IntegerArgumentType.integer())
-                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
-                                    IntegerArgumentType.getInteger(ctx, "x"),
-                                    IntegerArgumentType.getInteger(ctx, "z"))))))
+                .then(Commands.literal("tpcenter")
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> {
+                                    Regions.snapshots()
+                                            .stream()
+                                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                            .forEach(builder::suggest);
+                                    return builder.buildFuture();
+                                })
+                                .executes(ctx -> {
+                                    Player p = ctx.getSource().getBukkitSender() instanceof Player player ? player : null;
+                                    if (p == null) return 0;
 
-                    .then(Commands.literal("2")
-                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2, null, null))
-                        .then(Commands.argument("x", IntegerArgumentType.integer())
-                            .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
-                                IntegerArgumentType.getInteger(ctx, "x"), null))
-                            .then(Commands.argument("z", IntegerArgumentType.integer())
-                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
-                                    IntegerArgumentType.getInteger(ctx, "x"),
-                                    IntegerArgumentType.getInteger(ctx, "z")))))))
+                                    String name = StringArgumentType.getString(ctx, "name");
+                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                    if (meta == null) return 0;
 
-                .then(Commands.literal("save")
-                    .then(Commands.argument("name", StringArgumentType.word())
+                                    BlockPos min = meta.first();
+                                    BlockPos max = meta.second();
+
+                                    p.teleport(new Location(meta.third(),
+                                            (min.getX() + max.getX()) / 2.0 + 0.5,
+                                            (min.getY() + max.getY()) / 2.0,
+                                            (min.getZ() + max.getZ()) / 2.0 + 0.5
+                                    ));
+                                    p.sendRichMessage("<#80d0ff>Teleported to the center of region " + name);
+                                    return 1;
+                                })))
+
+                .then(Commands.literal("insideregions")
                         .executes(ctx -> {
                             CommandSender s = ctx.getSource().getBukkitSender();
                             if (!(s instanceof Player p)) {
-                                s.sendRichMessage("<#ff388b>Only players.");
+                                s.sendRichMessage("<#ff388b>Only players can use this command.");
                                 return 0;
                             }
 
-                            if (!pos1Map.containsKey(p.getUniqueId()) || !pos2Map.containsKey(p.getUniqueId())) {
-                                s.sendRichMessage("<#ff388b>Both positions must be set first using /neonpaper pos 1 and /neonpaper pos 2.");
-                                return 0;
-                            }
+                            List<String> insideRegions = new ArrayList<>();
+                            for (String name : Regions.snapshots()) {
+                                TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                if (meta == null) continue;
+                                if (!p.getWorld().getName().equals(meta.third().getName())) continue;
 
-                            CompletableFuture.runAsync(() -> save(p, pos1Map.get(p.getUniqueId()), pos2Map.get(p.getUniqueId()), StringArgumentType.getString(ctx, "name")));
-                            return 1;
-                        })))
-
-                .then(Commands.literal("delete")
-                    .then(Commands.argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            Regions.snapshots()
-                                .stream()
-                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                                .forEach(builder::suggest);
-                            return builder.buildFuture();
-                        })
-                        .executes(ctx -> {
-                            CommandSender s = ctx.getSource().getBukkitSender();
-                            String name = StringArgumentType.getString(ctx, "name");
-
-                            File nbtFile = new File(SNAP_DIR, name + ".nbt");
-                            File datFile = new File(SNAP_DIR, name + ".dat");
-
-                            SNAP_CACHE.remove(name);
-                            AutoRegeneration.remove(name);
-
-                            boolean existed = false;
-                            if (nbtFile.exists() && nbtFile.isFile()) {
-                                if (nbtFile.delete()) {
-                                    existed = true;
-                                } else {
-                                    s.sendRichMessage("<#ff388b>Could not delete snapshot file.");
-                                    return 0;
+                                if (Regions.isIn(p.getLocation(), meta.first(), meta.second())) {
+                                    insideRegions.add(name);
                                 }
                             }
 
-                            if (datFile.exists() && datFile.isFile()) {
-                                if (datFile.delete()) {
-                                    existed = true;
-                                } else {
-                                    s.sendRichMessage("<#ff388b>Could not delete metadata file.");
-                                    return 0;
-                                }
+                            if (insideRegions.isEmpty()) {
+                                p.sendRichMessage("<#ff388b>You are not inside any region.");
+                                return 1;
                             }
 
-                            if (existed) {
-                                s.sendRichMessage("<#80d0ff>Deleted snapshot " + name);
-                            } else {
-                                s.sendRichMessage("<#ff388b>No snapshot with that name.");
-                            }
-                            return 1;
-                        })))
+                            p.sendRichMessage("<#80d0ff>You are inside the following regions:");
+                            for (String name : insideRegions) {
+                                TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                if (meta == null) continue;
 
-                .then(Commands.literal("paste")
-                    .then(Commands.argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            Regions.snapshots()
-                                .stream()
-                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                                .forEach(builder::suggest);
-                            return builder.buildFuture();
-                        })
-                        .executes(ctx -> {
-                            CompletableFuture.runAsync(() -> paste(ctx.getSource().getBukkitSender(), StringArgumentType.getString(ctx, "name")));
+                                p.sendMessage(Component.text("- " + name, TextColor.fromHexString("#80D0FF"))
+                                        .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
+                                        .hoverEvent(HoverEvent.showText(
+                                                Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
+                                        )));
+                            }
+
                             return 1;
-                        })))), "neonpaper");
+                        }))
+
+                .then(Commands.literal("region")
+                        .then(Commands.literal("pos")
+                                .then(Commands.literal("1")
+                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1, null, null))
+                                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
+                                                        IntegerArgumentType.getInteger(ctx, "x"), null))
+                                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 1,
+                                                                IntegerArgumentType.getInteger(ctx, "x"),
+                                                                IntegerArgumentType.getInteger(ctx, "z"))))))
+
+                                .then(Commands.literal("2")
+                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2, null, null))
+                                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                                .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
+                                                        IntegerArgumentType.getInteger(ctx, "x"), null))
+                                                .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                        .executes(ctx -> pos(ctx.getSource().getBukkitSender(), 2,
+                                                                IntegerArgumentType.getInteger(ctx, "x"),
+                                                                IntegerArgumentType.getInteger(ctx, "z")))))))
+
+                        .then(Commands.literal("save")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .executes(ctx -> {
+                                            CommandSender s = ctx.getSource().getBukkitSender();
+                                            if (!(s instanceof Player p)) {
+                                                s.sendRichMessage("<#ff388b>Only players.");
+                                                return 0;
+                                            }
+
+                                            if (!pos1Map.containsKey(p.getUniqueId()) || !pos2Map.containsKey(p.getUniqueId())) {
+                                                s.sendRichMessage("<#ff388b>Both positions must be set first using /neonpaper pos 1 and /neonpaper pos 2.");
+                                                return 0;
+                                            }
+
+                                            CompletableFuture.runAsync(() -> save(p, pos1Map.get(p.getUniqueId()), pos2Map.get(p.getUniqueId()), StringArgumentType.getString(ctx, "name")));
+                                            return 1;
+                                        })))
+
+                        .then(Commands.literal("delete")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .suggests((ctx, builder) -> {
+                                            Regions.snapshots()
+                                                    .stream()
+                                                    .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                                    .forEach(builder::suggest);
+                                            return builder.buildFuture();
+                                        })
+                                        .executes(ctx -> {
+                                            CommandSender s = ctx.getSource().getBukkitSender();
+                                            String name = StringArgumentType.getString(ctx, "name");
+
+                                            File nbtFile = new File(SNAP_DIR, name + ".nbt");
+                                            File datFile = new File(SNAP_DIR, name + ".dat");
+
+                                            SNAP_CACHE.remove(name);
+                                            AutoRegeneration.remove(name);
+
+                                            boolean existed = false;
+                                            if (nbtFile.exists() && nbtFile.isFile()) {
+                                                if (nbtFile.delete()) {
+                                                    existed = true;
+                                                } else {
+                                                    s.sendRichMessage("<#ff388b>Could not delete snapshot file.");
+                                                    return 0;
+                                                }
+                                            }
+
+                                            if (datFile.exists() && datFile.isFile()) {
+                                                if (datFile.delete()) {
+                                                    existed = true;
+                                                } else {
+                                                    s.sendRichMessage("<#ff388b>Could not delete metadata file.");
+                                                    return 0;
+                                                }
+                                            }
+
+                                            if (existed) {
+                                                s.sendRichMessage("<#80d0ff>Deleted snapshot " + name);
+                                            } else {
+                                                s.sendRichMessage("<#ff388b>No snapshot with that name.");
+                                            }
+                                            return 1;
+                                        })))
+
+                        .then(Commands.literal("paste")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .suggests((ctx, builder) -> {
+                                            Regions.snapshots()
+                                                    .stream()
+                                                    .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                                    .forEach(builder::suggest);
+                                            return builder.buildFuture();
+                                        })
+                                        .executes(ctx -> {
+                                            CompletableFuture.runAsync(() -> paste(ctx.getSource().getBukkitSender(), StringArgumentType.getString(ctx, "name")));
+                                            return 1;
+                                        }))));
     }
 
     private static int pos(@NotNull CommandSender sender, int slot, Integer x, Integer z) {
@@ -342,8 +375,8 @@ public class NeonCommand {
 
         SNAP_DIR.mkdirs();
 
-        File nbtFile = new File(SNAP_DIR, name + ".nbt");
-        try (FileOutputStream out = new FileOutputStream(nbtFile)) {
+        File nbtFile = new File(SNAP_DIR, name + ".lnbt");
+        try (DataOutputStream dos = new DataOutputStream(new LZ4FrameOutputStream(new FileOutputStream(nbtFile)))) {
             DataResult<Tag> encoded = SnappedEntry.CODEC.listOf().encodeStart(NbtOps.INSTANCE, list);
             if (encoded.result().isEmpty()) {
                 player.sendRichMessage("<#ff388b>Chunk encode failed: " + encoded.error().orElseThrow().message());
@@ -351,9 +384,10 @@ public class NeonCommand {
             }
             CompoundTag root = new CompoundTag();
             root.put("entries", encoded.result().get());
-            NbtIo.writeCompressed(root, out);
+            NbtIo.write(root, dos);
         } catch (IOException e) {
             player.sendRichMessage("<#ff388b>Save failed: " + e.getMessage());
+            NeonPaper.LOGGER.error("Could not save snapshot '{}'", name, e);
             return;
         }
 
@@ -375,7 +409,7 @@ public class NeonCommand {
     }
 
     public static @Nullable TrioValue<BlockPos, BlockPos, World> paste(@NotNull CommandSender sender, @NotNull String name) {
-        File nbtFile = new File(SNAP_DIR, name + ".nbt");
+        File nbtFile = new File(SNAP_DIR, name + ".lnbt");
         File datFile = new File(SNAP_DIR, name + ".dat");
 
         if (!nbtFile.exists() || !datFile.exists()) {
@@ -392,8 +426,8 @@ public class NeonCommand {
             sender.sendRichMessage("<#a1ceff>Using cached snapshot " + name + " with " + snapshot.entries().size() + " chunks.");
         } else {
             List<SnappedEntry> entries;
-            try (FileInputStream in = new FileInputStream(nbtFile)) {
-                CompoundTag root = NbtIo.readCompressed(in, NbtAccounter.unlimitedHeap());
+            try (DataInputStream in = new DataInputStream(new LZ4FrameInputStream(new FileInputStream(nbtFile)))) {
+                CompoundTag root = NbtIo.read(in, NbtAccounter.unlimitedHeap());
                 Tag tag = root.get("entries");
                 if (!(tag instanceof ListTag)) {
                     sender.sendRichMessage("<#ff388b>Invalid NBT format: 'entries' is not a list");
@@ -401,12 +435,13 @@ public class NeonCommand {
                 }
                 DataResult<List<SnappedEntry>> decoded = SnappedEntry.CODEC.listOf().parse(NbtOps.INSTANCE, tag);
                 if (decoded.result().isEmpty()) {
-                    sender.sendRichMessage("<#ff388b>Chunk decode failed: " + decoded.error().get().message());
+                    sender.sendRichMessage("<#ff388b>Chunk decode failed: " + decoded.error().orElseThrow().message());
                     return null;
                 }
                 entries = decoded.result().get();
             } catch (IOException e) {
                 sender.sendRichMessage("<#ff388b>Failed to read chunks: " + e.getMessage());
+                NeonPaper.LOGGER.error("Could not load snapshot '{}'", name, e);
                 return null;
             }
 
@@ -439,17 +474,34 @@ public class NeonCommand {
         ServerLevel lvl = ((CraftWorld) world).getHandle();
         DistanceManager dm = lvl.getChunkSource().chunkMap.distanceManager;
 
-        long startPaste = System.currentTimeMillis();
-        for (SnappedEntry e : snapshot.entries()) {
-            ChunkPos pos = e.pos();
-            if (ConfigVariables.ADD_TICKET_TO_CHUNKS) dm.addRegionTicket(TicketType.REGEN, e.pos, 33, Unit.INSTANCE);
-            lvl.setChunkAt(pos.x, pos.z, e.chunk());
-            world.refreshChunk(pos.x, pos.z);
+        long start = System.nanoTime();
+        if (ConfigVariables.REGEN_MODE.equals("immediate")) {
+            for (SnappedEntry e : snapshot.entries()) {
+                ChunkPos pos = e.pos();
+                if (ConfigVariables.ADD_TICKET_TO_CHUNKS)
+                    dm.addRegionTicket(TicketType.REGEN, pos, 33, Unit.INSTANCE);
+                lvl.setChunkAt(pos.x, pos.z, e.chunk());
+            }
+        }
+        else {
+            for (SnappedEntry e : snapshot.entries()) {
+                ChunkPos pos = e.pos();
+                ServerLevel.pendingRegeneration.put(pos.longKey, e.chunk);
+            }
         }
 
+        long blocks = (long) snapshot.entries().size() * 16L * 16 * 381;
+        double timeMs = (System.nanoTime() - start) / 1_000_000.0;
+
         sender.sendRichMessage("<#bb45ff>Pasted " +
-            format((long) snapshot.entries().size() * 16 * 16 * 381) + " blocks in " + (System.currentTimeMillis() - startPaste) + "ms (" +
-            format((long) snapshot.entries().size() * 16 * 16 * 381 * 1000 / Math.max(1, System.currentTimeMillis() - startPaste)) + "/s)");
+                format(blocks) + " blocks in " +
+                String.format("%.2f", timeMs) + "ms (" +
+                format((long) (blocks * 1000.0 / timeMs)) + "/s)");
+
+        for (SnappedEntry e : snapshot.entries()) {
+            ChunkPos pos = e.pos();
+            world.refreshChunk(pos.x, pos.z);
+        }
 
         return TrioValue.of(snapshot.from(), snapshot.to(), world);
     }

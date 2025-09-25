@@ -108,12 +108,6 @@ This method removes nearly all overhead, allowing regeneration on a scale that p
 
 ---
 
-## World Regeneration
-
-Support for full world regeneration is planned, but not a current priority.
-
----
-
 ## How to Use
 
 Usage instructions will be added soon.

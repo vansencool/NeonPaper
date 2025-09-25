@@ -23,7 +23,7 @@ public class Regions {
     public static List<String> snapshots() {
         List<String> list = new ArrayList<>();
         if (!SNAP_DIR.exists() || !SNAP_DIR.isDirectory()) return list;
-        File[] files = SNAP_DIR.listFiles((dir, name) -> name.endsWith(".nbt"));
+        File[] files = SNAP_DIR.listFiles((dir, name) -> name.endsWith(".lnbt"));
         if (files == null) return list;
         for (File f : files) {
             if (f.isFile()) {
@@ -59,6 +59,6 @@ public class Regions {
     }
 
     public static boolean exists(String name) {
-        return new File(SNAP_DIR, name + ".nbt").isFile();
+        return new File(SNAP_DIR, name + ".lnbt").isFile();
     }
 }
