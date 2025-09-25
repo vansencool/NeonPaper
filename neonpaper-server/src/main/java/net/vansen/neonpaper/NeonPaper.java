@@ -2,20 +2,29 @@ package net.vansen.neonpaper;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import net.jpountz.lz4.LZ4FrameOutputStream;
 import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
 import net.vansen.fursconfig.FursConfig;
 import net.vansen.neonpaper.command.NeonCommand;
 import net.vansen.neonpaper.command.NeonTestingCommand;
 import net.vansen.neonpaper.config.ConfigVariables;
 import net.vansen.neonpaper.config.DefaultConfig;
+import net.vansen.neonpaper.regeneration.PendingChunks;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.BufferedOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
+@SuppressWarnings("ResultOfMethodCallIgnored")
 public class NeonPaper {
 
     public static final ComponentLogger LOGGER = ComponentLogger.logger("NeonPaper");
@@ -91,7 +100,33 @@ public class NeonPaper {
         }
 
         if (config.hasPath("general.filter_out_invalid_logs")) {
-            ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs");
+            ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs", false);
+        }
+
+        if (config.hasPath("performance.regen_mode")) {
+            String mode = config.getString("performance.regen_mode", "immediate").toLowerCase();
+            if (mode.equals("immediate") || mode.equals("lazy") || mode.equals("lazy_background")) {
+                ConfigVariables.REGEN_MODE = mode;
+            } else {
+                LOGGER.error("Invalid regen_mode in config, defaulting to 'immediate'. Valid options are: immediate, lazy, lazy_background.");
+            }
+            if (ConfigVariables.REGEN_MODE.equals("lazy_background")) {
+                PendingChunks.schedule();
+            }
+        }
+
+        if (config.hasPath("performance.flush_interval")) {
+            ConfigVariables.FLUSH_INTERVAL = config.getInt("performance.flush_interval", 60);
+        }
+
+        if (config.hasPath("performance.save_at_stop_lazy_background")) {
+            ConfigVariables.SAVE_AT_STOP_LAZY_BACKGROUND = config.getBoolean("performance.save_at_stop_lazy_background", true);
+        }
+
+        try {
+            convertNBT();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -136,6 +171,29 @@ public class NeonPaper {
             writer.write(DefaultConfig.CONFIG);
         } catch (IOException e) {
             LOGGER.error("Failed to save default configuration", e);
+        }
+    }
+
+
+    public static void convertNBT() throws IOException {
+        if (!NeonCommand.BACKUP_DIR.exists()) NeonCommand.BACKUP_DIR.mkdirs();
+
+        File[] files = NeonCommand.SNAP_DIR.listFiles((dir, name) -> name.endsWith(".nbt"));
+        if (files == null) return;
+
+        for (File nbtFile : files) {
+            try (DataOutputStream dos = new DataOutputStream(
+                    new BufferedOutputStream(
+                            new LZ4FrameOutputStream(Files.newOutputStream(new File(NeonCommand.SNAP_DIR, nbtFile.getName().replace(".nbt", ".lnbt")).toPath()))
+                    )
+            )) {
+                CompoundTag root = NbtIo.readCompressed(nbtFile.toPath(), NbtAccounter.unlimitedHeap());
+                NbtIo.write(root, dos);
+                LOGGER.info("Converted snapshot {} to the new format.", nbtFile.getName());
+            }
+
+            Files.move(nbtFile.toPath(), new File(NeonCommand.BACKUP_DIR, nbtFile.getName()).toPath(),
+                    StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }

@@ -2,7 +2,7 @@ package net.vansen.neonpaper.config;
 
 public class DefaultConfig {
 
-    public static String VERSION = "1.0.4";
+    public static String VERSION = "1.0.5";
 
     public static String CONFIG = """
         // NeonPaper Configuration
@@ -63,6 +63,32 @@ public class DefaultConfig {
             // If you experience issues with it, try "packed"
             // If you dont need to place blocks in the pasted region, use "raw" for best performance
             chunk_setting_method = "direct"
+        
+            // Determines how the regeneration system processes chunks when regenerating a region.
+            // There are three modes:
+            //
+            //   immediate
+            //     Chunks are loaded and regenerated immediately after regeneration is triggered.
+            //     The initial regeneration may take a long time if chunks are not already loaded.
+            //
+            //   lazy
+            //     The system creates a map of chunks that need regeneration.
+            //     Chunks are regenerated automatically when accessed.
+            //     Regeneration is practically instant for all chunks, except for the minor overheads
+            //     IMPORTANT: The map is saved on server stop. Stopping while a lazy regeneration is pending
+            //     will massively slow down the stop and force stopping WILL corrupt the data.
+            //     If the chunk map is not saved, chunks that were not loaded after regeneration will revert to their pre-regeneration state.
+            //
+            //   lazy_background
+            //     Works like lazy mode, but flushes the chunk map to disk every N seconds (default 60).
+            //     Reduces stop-time cost compared to lazy, but immediate server shutdown can still cause corruption.
+            //     You can reduce the risk of corruption by enabling "save_at_stop_lazy_background" below.
+            //
+            // Recommended: "immediate" for small/medium regions, "lazy" or "lazy_background" for very large regions (atleast 5-10k+ chunks)
+            regen_mode = "immediate"
+        
+            flush_interval = 60 // Only used in lazy_background mode, how often (in seconds) to flush the chunk map to disk, Recommended: 60
+            save_at_stop_lazy_background = true // Only used in lazy_background mode, whether to save the chunk map on server stop, reducing risk of corruption, Recommended
         }
         
         // Auto Regeneration
@@ -86,7 +112,7 @@ public class DefaultConfig {
         //       global = all online players
         //
         // sounds
-        //   sound: The Bukkit sound to play after regenerating, see https://jd.papermc.io/paper/1.21.1/org/bukkit/Sound.html for a list of sounds
+        //   sound: The Bukkit sound to play after regenerating, see https://jd.papermc.io/paper/1.21.8/org/bukkit/Sound.html for a list of sounds
         //   volume: Volume of the sound
         //   pitch: Pitch of the sound
         //   to: arena/world/global (same as broadcast)

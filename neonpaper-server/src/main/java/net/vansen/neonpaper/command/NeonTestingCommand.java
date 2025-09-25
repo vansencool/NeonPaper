@@ -8,14 +8,13 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.TextColor;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.server.level.ChunkLevel;
 import net.minecraft.server.level.DistanceManager;
-import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.vansen.neonpaper.NeonPaper;
@@ -154,7 +153,7 @@ public class NeonTestingCommand {
                 for (int dz = -radius; dz <= radius; dz++) {
                     int cx = originCX + dx;
                     int cz = originCZ + dz;
-                    dm.ticketStorage.addTicket(new Ticket<>(TicketType.REGEN, ChunkLevel.byStatus(FullChunkStatus.FULL)), new ChunkPos(cx, cz));
+                    dm.ticketStorage.addTicket(new Ticket<>(TicketType.REGEN, 0), new ChunkPos(cx, cz));
                     LevelChunk ca = level.getChunk(cx, cz);
                     chunksToUse.add(ca);
                     cleanSnapshots.put(cx + "," + cz, ca.snap());
@@ -198,14 +197,14 @@ public class NeonTestingCommand {
             try {
                 for (int i = 0; i < runs; i++) {
                     for (LevelChunk chunk : chunksToUse) {
-                        level.setChunkAt(chunk, airSnapshot);
+                        Level.setChunkAt(chunk, airSnapshot);
                         player.getWorld().refreshChunk(chunk.getPos().x, chunk.getPos().z);
                     }
                     Thread.sleep(2000);
 
                     long start = System.nanoTime();
                     for (LevelChunk chunk : chunksToUse)
-                        level.setChunkAt(chunk, cleanSnapshots.get(chunk.getPos().x + "," + chunk.getPos().z));
+                        Level.setChunkAt(chunk, cleanSnapshots.get(chunk.getPos().x + "," + chunk.getPos().z));
                     long end = System.nanoTime();
 
                     totalRestore.addAndGet(end - start);
@@ -216,7 +215,7 @@ public class NeonTestingCommand {
                     Thread.sleep(2000);
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to benchmark", e);
+                NeonPaper.LOGGER.error("Benchmark failed", e);
             }
             double totalMs = totalRestore.get() / 1_000_000.0;
             player.sendRichMessage("<green>Benchmark complete!</green>");
@@ -225,10 +224,6 @@ public class NeonTestingCommand {
             player.sendRichMessage("<gray>Per-chunk time: <white>" + String.format("%.3f", (double) totalRestore.get() / runs / chunksToUse.size() / 1_000_000.0) + "</white> ms");
             player.sendRichMessage("");
             player.sendRichMessage("<gray>Total time: <white>" + String.format("%.2f", totalMs) + "</white> ms");
-
-            for (LevelChunk chunk : chunksToUse) {
-                dm.ticketStorage.removeTicket(new Ticket<>(TicketType.REGEN, ChunkLevel.byStatus(FullChunkStatus.FULL)), chunk.getPos());
-            }
         });
     }
 
