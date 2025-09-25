@@ -51,8 +51,8 @@ public class AutoRegeneration {
                 continue;
             }
             if (!arenaCfg.getBoolean("enabled")) continue;
-            if (!Regions.exists(entry.getKey())) {
-                NeonPaper.LOGGER.warn("Auto regeneration for arena '{}' is enabled, but the snapshot does not exist.", entry.getKey());
+            if (!Regions.exists(arenaCfg.getString("snapshot"))) {
+                NeonPaper.LOGGER.warn("Auto regeneration for arena '{}' is enabled, but the snapshot '{}' does not exist.", entry.getKey(), arenaCfg.getString("snapshot"));
                 continue;
             }
 

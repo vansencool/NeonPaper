@@ -62,3 +62,54 @@
     - `"lazy_background"` – Like lazy, but periodically flushes chunk map to disk to reduce corruption risk
 - `flush_interval` – Only used in `lazy_background` mode. Interval in seconds to flush the chunk map to disk. Default: `60`
 - `save_at_stop_lazy_background` – Only used in `lazy_background` mode. When `true`, saves the chunk map on server stop to reduce corruption risk. Default: `true`
+
+## Auto Regeneration
+
+Each arena can have its own regeneration settings, defined under `regeneration.arena.<name>`.
+
+### Options per arena
+
+**enabled**
+- Whether auto regeneration is active for this arena.
+- Type: `boolean`
+
+**snapshot**
+- The name of the saved NBT snapshot file to paste when regenerating.
+- Type: `string`
+
+**time**
+- Controls how often the regeneration should occur.
+    - `time_unit` – The unit of time. Supported values:
+        - `S` = seconds
+        - `M` = minutes
+        - `H` = hours
+        - `D` = days
+    - `duration` – The length of the interval in the given unit.
+
+**broadcast**
+- Sends messages after regeneration. Supports [MiniMessage](https://docs.advntr.dev/minimessage/index.html).
+    - `message` – One or more lines to display.
+    - `type` – Where the message appears:
+        - `message` = chat
+        - `actionbar` / `action_bar` = action bar
+        - `both` = both chat and action bar
+    - `to` – Which players see it:
+        - `arena` = only players inside arena bounds
+        - `world` = all players in the same world
+        - `global` = all online players
+
+**sounds**
+- Plays sounds after regeneration.
+    - `sound` – A valid [Bukkit sound](https://jd.papermc.io/paper/1.21.4/org/bukkit/Sound.html)
+    - `volume` – Volume of the sound (float)
+    - `pitch` – Pitch of the sound (float)
+    - `to` – Who hears it (`arena`, `world`, `global`)
+
+**ticking**
+- Displays countdown messages before regeneration.
+    - `enabled` – Whether ticking messages are active.
+    - `value` – Number of seconds before regeneration to start showing countdowns.
+        - Example: `5` → shows messages for 5, 4, 3, 2, 1 seconds remaining.
+    - `message` – Message shown each second. Supports `<count>` placeholder for remaining seconds.
+    - `type` – Where the ticking message appears: `message`, `actionbar`, or `both`.
+    - `to` – Who sees ticking messages (`arena`, `world`, `global`).
