@@ -23,8 +23,9 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 
-@SuppressWarnings("ResultOfMethodCallIgnored")
+@SuppressWarnings({"ResultOfMethodCallIgnored", "LoggingSimilarMessage"})
 public class NeonPaper {
 
     public static final ComponentLogger LOGGER = ComponentLogger.logger("NeonPaper");
@@ -82,52 +83,63 @@ public class NeonPaper {
                 loadConfig();
         }
 
-        if (config.hasPath("performance.add_ticket_to_chunks")) {
-            ConfigVariables.ADD_TICKET_TO_CHUNKS = config.getBoolean("performance.add_ticket_to_chunks", false);
-        }
+        ConfigVariables.ADD_TICKET_TO_CHUNKS = bool("performance.add_ticket_to_chunks", false);
+        ConfigVariables.CACHE_CHUNK_DATA = bool("performance.cache_chunk_data", false);
 
-        if (config.hasPath("performance.cache_chunk_data")) {
-            ConfigVariables.CACHE_CHUNK_DATA = config.getBoolean("performance.cache_chunk_data", false);
-        }
+        ConfigVariables.CHUNK_SETTING_METHOD = string("performance.chunk_setting_method", "direct", "raw", "direct", "packed");
+        ConfigVariables.FILTER_OUT_INVALID_LOGS = bool("general.filter_out_invalid_logs", false);
 
-        if (config.hasPath("performance.chunk_setting_method")) {
-            String method = config.getString("performance.chunk_setting_method", "direct").toLowerCase();
-            if (method.equals("raw") || method.equals("direct") || method.equals("packed")) {
-                ConfigVariables.CHUNK_SETTING_METHOD = method;
+        if (config.hasPath("general.clear_entities_after_regen")) {
+            String option = config.getString("general.clear_entities_after_regen", "none").toLowerCase();
+            if (option.contains("mobs") || option.contains("none") || option.contains("items") || option.contains("players") || option.contains("armor_stands") || option.contains("crystals")) {
+                ConfigVariables.CLEAR_ENTITIES_AFTER_REGEN = option;
             } else {
-                LOGGER.error("Invalid chunk_setting_method in config, defaulting to 'direct'. Valid options are: raw, direct, packed.");
+                LOGGER.error("Invalid clear_entities_after_regen in config, defaulting to 'none'. Valid options are: none, mobs, items, players, armor_stands, crystals.");
             }
-        }
+        } else LOGGER.error("Missing clear_entities_after_regen in config, defaulting to 'none'");
+        ConfigVariables.IGNORE_Y_AXIS_IN_REGION_CHECK = bool("general.ignore_y_axis_in_region_check", true);
 
-        if (config.hasPath("general.filter_out_invalid_logs")) {
-            ConfigVariables.FILTER_OUT_INVALID_LOGS = config.getBoolean("general.filter_out_invalid_logs", false);
-        }
+        ConfigVariables.REGEN_MODE = string("performance.regen_mode", "immediate", "immediate", "lazy", "lazy_background");
+        if (ConfigVariables.REGEN_MODE.equals("lazy_background")) PendingChunks.schedule();
 
-        if (config.hasPath("performance.regen_mode")) {
-            String mode = config.getString("performance.regen_mode", "immediate").toLowerCase();
-            if (mode.equals("immediate") || mode.equals("lazy") || mode.equals("lazy_background")) {
-                ConfigVariables.REGEN_MODE = mode;
-            } else {
-                LOGGER.error("Invalid regen_mode in config, defaulting to 'immediate'. Valid options are: immediate, lazy, lazy_background.");
-            }
-            if (ConfigVariables.REGEN_MODE.equals("lazy_background")) {
-                PendingChunks.schedule();
-            }
-        }
-
-        if (config.hasPath("performance.flush_interval")) {
-            ConfigVariables.FLUSH_INTERVAL = config.getInt("performance.flush_interval", 60);
-        }
-
-        if (config.hasPath("performance.save_at_stop_lazy_background")) {
-            ConfigVariables.SAVE_AT_STOP_LAZY_BACKGROUND = config.getBoolean("performance.save_at_stop_lazy_background", true);
-        }
+        ConfigVariables.FLUSH_INTERVAL = integer("performance.flush_interval", 60);
+        ConfigVariables.SAVE_AT_STOP_LAZY_BACKGROUND = bool("performance.save_at_stop_lazy_background", true);
 
         try {
             convertNBT();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static String string(@NotNull String path, @NotNull String def, @NotNull String... valid) {
+        if (!config.hasPath(path)) {
+            LOGGER.error("Missing {} in config, defaulting to '{}'", path, def);
+            return def;
+        }
+        String value = config.getString(path, def).toLowerCase();
+        if (valid.length > 0 && Arrays.stream(valid).noneMatch(value::equals)) {
+            LOGGER.error("Invalid {} in config ('{}'), defaulting to '{}'. Valid options are: {}", path, value, def, String.join(", ", valid));
+            return def;
+        }
+        return value;
+    }
+
+    @SuppressWarnings("SameParameterValue")
+    private static int integer(@NotNull String path, int def) {
+        if (!config.hasPath(path)) {
+            LOGGER.error("Missing {} in config, defaulting to '{}'", path, def);
+            return def;
+        }
+        return config.getInt(path, def);
+    }
+
+    private static boolean bool(@NotNull String path, boolean def) {
+        if (!config.hasPath(path)) {
+            LOGGER.error("Missing {} in config, defaulting to '{}'", path, def);
+            return def;
+        }
+        return config.getBoolean(path, def);
     }
 
     private static boolean copyAndCreate(@NotNull String currentVersion) {
@@ -140,11 +152,13 @@ public class NeonPaper {
                 copyIndex++;
                 copiedFile = new File("neonpaper/configcopied/neonpaper-global COPIED-" + copyIndex + ".conf");
             }
+
             File configCopiedDir = new File("neonpaper/configcopied");
             if (!configCopiedDir.exists()) {
                 configCopiedDir.mkdirs();
-                Files.copy(new File("neonpaper/neonpaper-global.conf").toPath(), copiedFile.toPath());
             }
+
+            Files.copy(new File("neonpaper/neonpaper-global.conf").toPath(), copiedFile.toPath());
             LOGGER.info("Created a copy of the default config file in the same folder as the config file, now deleting the old one and creating a new one.");
             if (CONFIG_FILE.delete()) {
                 save();
@@ -173,7 +187,6 @@ public class NeonPaper {
             LOGGER.error("Failed to save default configuration", e);
         }
     }
-
 
     public static void convertNBT() throws IOException {
         if (!NeonCommand.BACKUP_DIR.exists()) NeonCommand.BACKUP_DIR.mkdirs();

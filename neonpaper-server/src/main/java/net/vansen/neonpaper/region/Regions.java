@@ -2,6 +2,7 @@ package net.vansen.neonpaper.region;
 
 import net.minecraft.core.BlockPos;
 import net.vansen.neonpaper.NeonPaper;
+import net.vansen.neonpaper.config.ConfigVariables;
 import net.vansen.neonpaper.util.TrioValue;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -35,8 +36,12 @@ public class Regions {
     }
 
     public static boolean isIn(@NotNull Location location, @NotNull BlockPos pos1, @NotNull BlockPos pos2) {
-        return location.getX() >= Math.min(pos1.getX(), pos2.getX()) && location.getX() <= Math.max(pos1.getX(), pos2.getX()) &&
-            location.getZ() >= Math.min(pos1.getZ(), pos2.getZ()) && location.getZ() <= Math.max(pos1.getZ(), pos2.getZ());
+        return location.getX() >= Math.min(pos1.getX(), pos2.getX()) &&
+                location.getX() <= Math.max(pos1.getX(), pos2.getX()) &&
+                location.getZ() >= Math.min(pos1.getZ(), pos2.getZ()) &&
+                location.getZ() <= Math.max(pos1.getZ(), pos2.getZ()) &&
+                (ConfigVariables.IGNORE_Y_AXIS_IN_REGION_CHECK || (location.getY() >= Math.min(pos1.getY(), pos2.getY()) &&
+                        location.getY() <= Math.max(pos1.getY(), pos2.getY())));
     }
 
     public static @Nullable TrioValue<BlockPos, BlockPos, World> metadata(@NotNull String name) {

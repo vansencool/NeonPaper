@@ -22,18 +22,26 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.DistanceManager;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
 import net.vansen.neonpaper.NeonPaper;
 import net.vansen.neonpaper.auto.AutoRegeneration;
 import net.vansen.neonpaper.chunk.SnappedChunk;
 import net.vansen.neonpaper.config.ConfigVariables;
 import net.vansen.neonpaper.regeneration.PendingChunks;
 import net.vansen.neonpaper.region.Regions;
+import net.vansen.neonpaper.usage.NeonPaperUsage;
 import net.vansen.neonpaper.util.TrioValue;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -51,11 +59,14 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public class NeonCommand {
     public static final File SNAP_DIR = new File("neon_snapshots");
@@ -63,14 +74,14 @@ public class NeonCommand {
     private static final HashMap<String, CachedSnapshot> SNAP_CACHE = new HashMap<>();
 
     public static final Codec<ChunkPos> CHUNKPOS_CODEC = RecordCodecBuilder.create(i -> i.group(
-        Codec.INT.fieldOf("x").forGetter(p -> p.x),
-        Codec.INT.fieldOf("z").forGetter(p -> p.z)
+            Codec.INT.fieldOf("x").forGetter(p -> p.x),
+            Codec.INT.fieldOf("z").forGetter(p -> p.z)
     ).apply(i, ChunkPos::new));
 
     public record SnappedEntry(ChunkPos pos, SnappedChunk chunk) {
         public static final Codec<SnappedEntry> CODEC = RecordCodecBuilder.create(i -> i.group(
-            CHUNKPOS_CODEC.fieldOf("pos").forGetter(SnappedEntry::pos),
-            SnappedChunk.CODEC.fieldOf("chunk").forGetter(SnappedEntry::chunk)
+                CHUNKPOS_CODEC.fieldOf("pos").forGetter(SnappedEntry::pos),
+                SnappedChunk.CODEC.fieldOf("chunk").forGetter(SnappedEntry::chunk)
         ).apply(i, SnappedEntry::new));
     }
 
@@ -99,144 +110,236 @@ public class NeonCommand {
                             return 1;
                         }))
 
-                .then(Commands.literal("inside")
-                        .then(Commands.argument("name", StringArgumentType.word())
-                                .suggests((ctx, builder) -> {
-                                    Regions.snapshots()
-                                            .stream()
-                                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                                            .forEach(builder::suggest);
-                                    return builder.buildFuture();
-                                })
-                                .executes(ctx -> {
-                                    CommandSender s = ctx.getSource().getBukkitSender();
-                                    if (!(s instanceof Player p)) {
-                                        s.sendRichMessage("<#ff388b>[neonpaper inside] Only players.");
-                                        return 0;
-                                    }
+                .then(Commands.literal("help")
+                        .executes(NeonPaperUsage::usage))
 
-                                    String name = StringArgumentType.getString(ctx, "name");
-                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                                    if (meta == null) {
-                                        s.sendRichMessage("<#ff388b>No metadata for that region.");
-                                        return 0;
-                                    }
+                .then(Commands.literal("map")
+                    .executes(NeonPaperUsage::map)
+                    .then(Commands.literal("flushmap").executes(ctx -> {
+                        CompletableFuture.runAsync(() -> {
+                            long start = System.nanoTime();
+                            PendingChunks.flush();
+                            ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Flushed pending chunks in " + (System.nanoTime() - start) / 1_000_000 + "ms");
+                        });
+                        return 1;
+                    }))
 
-                                    if (!p.getWorld().getName().equals(meta.third().getName())) {
-                                        s.sendRichMessage("<#ff388b>You are not in the correct world.");
-                                        return 0;
-                                    }
+                    .then(Commands.literal("loadmap").executes(ctx -> {
+                        CompletableFuture.runAsync(() -> {
+                            long start = System.nanoTime();
+                            PendingChunks.load();
+                            ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Loaded pending chunks in " + (System.nanoTime() - start) / 1_000_000 + "ms");
+                        });
+                        return 1;
+                    })))
 
-                                    BlockPos min = meta.first();
-                                    BlockPos max = meta.second();
+                .then(Commands.literal("information")
+                    .executes(NeonPaperUsage::information)
+                    .then(Commands.literal("info")
+                            .executes(NeonPaperUsage::information)
+                            .then(Commands.argument("name", StringArgumentType.word())
+                                    .suggests((ctx, builder) -> {
+                                        Regions.snapshots()
+                                                .stream()
+                                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                                .forEach(builder::suggest);
+                                        return builder.buildFuture();
+                                    })
+                                    .executes(ctx -> {
+                                        CommandSender s = ctx.getSource().getBukkitSender();
+                                        if (!(s instanceof Player p)) {
+                                            s.sendRichMessage("<#ff388b>[neonpaper info] Only players.");
+                                            return 0;
+                                        }
 
-                                    if (Regions.isIn(p.getLocation(), min, max)) {
-                                        s.sendRichMessage("<#80d0ff>You are inside of the region '" + name + "'");
-                                    } else {
-                                        s.sendRichMessage("<#ff388b>You are outside of the region '" + name + "'");
-                                        p.sendMessage(Component.text("Click here to teleport to the center of " + name + "!", TextColor.fromHexString("#80D0FF"))
-                                                .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
-                                                .hoverEvent(HoverEvent.showText(
-                                                        Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
-                                                )));
-                                    }
+                                        String name = StringArgumentType.getString(ctx, "name");
+                                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                        if (meta == null) {
+                                            s.sendRichMessage("<#ff388b>No metadata for that region.");
+                                            return 0;
+                                        }
 
-                                    return 1;
-                                })))
+                                        BlockPos min = meta.first();
+                                        BlockPos max = meta.second();
 
-                .then(Commands.literal("flushmap").executes(ctx -> {
-                    CompletableFuture.runAsync(() -> {
-                        long start = System.nanoTime();
-                        PendingChunks.flush();
-                        long timeMs = (System.nanoTime() - start) / 1_000_000;
-                        ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Flushed pending chunks in " + timeMs + "ms");
-                    });
-                    return 1;
-                }))
+                                        int x = Math.abs(max.getX() - min.getX()) + 1;
+                                        int z = Math.abs(max.getZ() - min.getZ()) + 1;
 
-                .then(Commands.literal("loadmap").executes(ctx -> {
-                    CompletableFuture.runAsync(() -> {
-                        long start = System.nanoTime();
-                        PendingChunks.load();
-                        long timeMs = (System.nanoTime() - start) / 1_000_000;
-                        ctx.getSource().getBukkitSender().sendRichMessage("<#a1ceff>Loaded pending chunks in " + timeMs + "ms");
-                    });
-                    return 1;
-                }))
+                                        p.sendRichMessage("<#80d0ff><bold>Region Info:</bold> <#a1ceff>'" + name + "'");
+                                        p.sendRichMessage("  <#a1ceff>• World: <#80d0ff>" + meta.third().getName());
+                                        p.sendMessage(Component.text("  • Pos1: ", TextColor.fromHexString("#a1ceff"))
+                                                .append(Component.text(min.getX() + ", " + min.getY() + ", " + min.getZ(), TextColor.fromHexString("#80d0ff")))
+                                                .clickEvent(ClickEvent.runCommand("/neonpaper tp " + name + " pos 1"))
+                                                .hoverEvent(HoverEvent.showText(Component.text("Teleport to pos1 of " + name, TextColor.fromHexString("#80d0ff")))));
 
-                .then(Commands.literal("tpcenter")
-                        .then(Commands.argument("name", StringArgumentType.word())
-                                .suggests((ctx, builder) -> {
-                                    Regions.snapshots()
-                                            .stream()
-                                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
-                                            .forEach(builder::suggest);
-                                    return builder.buildFuture();
-                                })
-                                .executes(ctx -> {
-                                    CommandSender s = ctx.getSource().getBukkitSender();
-                                    if (!(s instanceof Player p)) {
-                                        s.sendRichMessage("<#ff388b>[neonpaper tpcenter] Only players can use this command.");
-                                        return 0;
-                                    }
+                                        p.sendMessage(Component.text("  • Pos2: ", TextColor.fromHexString("#a1ceff"))
+                                                .append(Component.text(max.getX() + ", " + max.getY() + ", " + max.getZ(), TextColor.fromHexString("#80d0ff")))
+                                                .clickEvent(ClickEvent.runCommand("/neonpaper tp " + name + " pos 2"))
+                                                .hoverEvent(HoverEvent.showText(Component.text("Teleport to pos2 of " + name, TextColor.fromHexString("#80d0ff")))));
 
-                                    String name = StringArgumentType.getString(ctx, "name");
-                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                                    if (meta == null) return 0;
+                                        p.sendMessage(Component.text("  • Center: ", TextColor.fromHexString("#a1ceff"))
+                                                .append(Component.text(
+                                                        ((min.getX() + max.getX()) / 2.0 + 0.5) + ", " +
+                                                                ((min.getY() + max.getY()) / 2.0) + ", " +
+                                                                ((min.getZ() + max.getZ()) / 2.0 + 0.5), TextColor.fromHexString("#80d0ff")))
+                                                .clickEvent(ClickEvent.runCommand("/neonpaper tp " + name + " center"))
+                                                .hoverEvent(HoverEvent.showText(Component.text("Teleport to center of " + name, TextColor.fromHexString("#80d0ff")))));
 
-                                    BlockPos min = meta.first();
-                                    BlockPos max = meta.second();
+                                        p.sendRichMessage("");
 
-                                    p.teleport(new Location(meta.third(),
-                                            (min.getX() + max.getX()) / 2.0 + 0.5,
-                                            (min.getY() + max.getY()) / 2.0,
-                                            (min.getZ() + max.getZ()) / 2.0 + 0.5
-                                    ));
-                                    p.sendRichMessage("<#80d0ff>Teleported to the center of region " + name);
-                                    return 1;
-                                })))
+                                        p.sendRichMessage("<#80d0ff><bold>Size</bold>");
+                                        p.sendRichMessage("  <#a1ceff>• Dimensions: <#80d0ff>" + x + " × 381 × " + z);
+                                        p.sendRichMessage("  <#a1ceff>• Total Blocks: <#80d0ff>" + format((long) x * 381 * z));
+                                        p.sendRichMessage("  <#a1ceff>• Chunks: <#80d0ff>" + ((Math.abs((min.getX() >> 4) - (max.getX() >> 4)) + 1)
+                                                * (Math.abs((min.getZ() >> 4) - (max.getZ() >> 4)) + 1)));
 
-                .then(Commands.literal("insideregions")
-                        .executes(ctx -> {
-                            CommandSender s = ctx.getSource().getBukkitSender();
-                            if (!(s instanceof Player p)) {
-                                s.sendRichMessage("<#ff388b>[neonpaper insideregions] Only players can use this command.");
-                                return 0;
-                            }
+                                        p.sendRichMessage("");
+                                        p.sendRichMessage("<#80d0ff><bold>Other</bold>");
+                                        p.sendRichMessage("  <#a1ceff>• Line from Pos1 → Pos2: <#80d0ff>" + String.format("%.2f", Math.sqrt(
+                                                Math.pow(max.getX() - min.getX(), 2) +
+                                                        Math.pow(max.getY() - min.getY(), 2) +
+                                                        Math.pow(max.getZ() - min.getZ(), 2)
+                                        )) + " blocks");
+                                        p.sendRichMessage("  <#a1ceff>• Avg Dimension: <#80d0ff>" + String.format("%.2f", (x + 381 + z) / 3.0));
+                                        p.sendRichMessage("  <#a1ceff>• Longest Side: <#80d0ff>" + Math.max(x, Math.max(381, z)) + " blocks");
+                                        p.sendRichMessage("  <#a1ceff>• Shortest Side: <#80d0ff>" + Math.min(x, Math.min(381, z)) + " blocks");
 
-                            List<String> insideRegions = new ArrayList<>();
-                            for (String name : Regions.snapshots()) {
-                                TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                                if (meta == null) continue;
-                                if (!p.getWorld().getName().equals(meta.third().getName())) continue;
+                                        return 1;
+                                    })))
 
-                                if (Regions.isIn(p.getLocation(), meta.first(), meta.second())) {
-                                    insideRegions.add(name);
+                    .then(Commands.literal("insideregions")
+                            .executes(ctx -> {
+                                CommandSender s = ctx.getSource().getBukkitSender();
+                                if (!(s instanceof Player p)) {
+                                    s.sendRichMessage("<#ff388b>[neonpaper insideregions] Only players can use this command.");
+                                    return 0;
                                 }
-                            }
 
-                            if (insideRegions.isEmpty()) {
-                                p.sendRichMessage("<#ff388b>You are not inside any region.");
+                                List<String> insideRegions = new ArrayList<>();
+                                for (String name : Regions.snapshots()) {
+                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                    if (meta == null) continue;
+                                    if (!p.getWorld().getName().equals(meta.third().getName())) continue;
+
+                                    if (Regions.isIn(p.getLocation(), meta.first(), meta.second())) {
+                                        insideRegions.add(name);
+                                    }
+                                }
+
+                                if (insideRegions.isEmpty()) {
+                                    p.sendRichMessage("<#ff388b>You are not inside any region.");
+                                    return 1;
+                                }
+
+                                p.sendRichMessage("<#80d0ff>You are inside the following regions:");
+                                for (String name : insideRegions) {
+                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                    if (meta == null) continue;
+
+                                    p.sendMessage(Component.text("- " + name, TextColor.fromHexString("#80D0FF"))
+                                            .clickEvent(ClickEvent.runCommand("/neonpaper tp " + name + " center"))
+                                            .hoverEvent(HoverEvent.showText(
+                                                    Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
+                                            )));
+                                }
+
                                 return 1;
-                            }
+                            }))
 
-                            p.sendRichMessage("<#80d0ff>You are inside the following regions:");
-                            for (String name : insideRegions) {
-                                TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
-                                if (meta == null) continue;
+                    .then(Commands.literal("inside")
+                            .executes(NeonPaperUsage::information)
+                            .then(Commands.argument("name", StringArgumentType.word())
+                                    .suggests((ctx, builder) -> {
+                                        Regions.snapshots()
+                                                .stream()
+                                                .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                                .forEach(builder::suggest);
+                                        return builder.buildFuture();
+                                    })
+                                    .executes(ctx -> {
+                                        CommandSender s = ctx.getSource().getBukkitSender();
+                                        if (!(s instanceof Player p)) {
+                                            s.sendRichMessage("<#ff388b>[neonpaper inside] Only players.");
+                                            return 0;
+                                        }
 
-                                p.sendMessage(Component.text("- " + name, TextColor.fromHexString("#80D0FF"))
-                                        .clickEvent(ClickEvent.runCommand("/neonpaper tpcenter " + name))
-                                        .hoverEvent(HoverEvent.showText(
-                                                Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
-                                        )));
-                            }
+                                        String name = StringArgumentType.getString(ctx, "name");
+                                        TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                        if (meta == null) {
+                                            s.sendRichMessage("<#ff388b>No metadata for that region.");
+                                            return 0;
+                                        }
 
-                            return 1;
-                        }))
+                                        if (!p.getWorld().getName().equals(meta.third().getName())) {
+                                            s.sendRichMessage("<#ff388b>You are not in the correct world.");
+                                            return 0;
+                                        }
+
+                                        BlockPos min = meta.first();
+                                        BlockPos max = meta.second();
+
+                                        if (Regions.isIn(p.getLocation(), min, max)) {
+                                            s.sendRichMessage("<#80d0ff>You are inside of the region '" + name + "'");
+                                        } else {
+                                            s.sendRichMessage("<#ff388b>You are outside of the region '" + name + "'");
+                                            p.sendMessage(Component.text("Click here to teleport to the center of " + name + "!", TextColor.fromHexString("#80D0FF"))
+                                                    .clickEvent(ClickEvent.runCommand("/neonpaper tp " + name + " center"))
+                                                    .hoverEvent(HoverEvent.showText(
+                                                            Component.text("Teleport to the center of " + name, TextColor.fromHexString("#80D0FF"))
+                                                    )));
+                                        }
+
+                                        return 1;
+                                    }))))
+
+                .then(Commands.literal("teleportation")
+                        .executes(NeonPaperUsage::teleportation)
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .executes(NeonPaperUsage::teleportation)
+                                .suggests((ctx, builder) -> {
+                                    Regions.snapshots()
+                                            .stream()
+                                            .filter(s -> s.toLowerCase().startsWith(builder.getRemainingLowerCase()))
+                                            .forEach(builder::suggest);
+                                    return builder.buildFuture();
+                                })
+                                .then(Commands.literal("pos")
+                                        .executes(NeonPaperUsage::teleportation)
+                                        .then(Commands.argument("slot", IntegerArgumentType.integer(1, 2))
+                                                .executes(ctx -> {
+                                                    Player p = (Player) ctx.getSource().getBukkitSender();
+                                                    String name = StringArgumentType.getString(ctx, "name");
+                                                    int slot = IntegerArgumentType.getInteger(ctx, "slot");
+                                                    TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                                    if (meta == null) return 0;
+
+                                                    BlockPos pos = (slot == 1 ? meta.first() : meta.second());
+                                                    p.teleport(new Location(meta.third(), pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5));
+                                                    p.sendMessage(Component.text("Teleported to " + (slot == 1 ? "pos1" : "pos2") + " of region " + name, TextColor.fromHexString("#80d0ff")));
+                                                    return 1;
+                                                })))
+                                .then(Commands.literal("center")
+                                        .executes(ctx -> {
+                                            Player p = (Player) ctx.getSource().getBukkitSender();
+                                            String name = StringArgumentType.getString(ctx, "name");
+                                            TrioValue<BlockPos, BlockPos, World> meta = Regions.metadata(name);
+                                            if (meta == null) return 0;
+
+                                            BlockPos min = meta.first();
+                                            BlockPos max = meta.second();
+                                            p.teleport(new Location(meta.third(),
+                                                    (min.getX() + max.getX()) / 2.0 + 0.5,
+                                                    (min.getY() + max.getY()) / 2.0,
+                                                    (min.getZ() + max.getZ()) / 2.0 + 0.5
+                                            ));
+                                            p.sendRichMessage("<#80d0ff>Teleported to the center of region " + name);
+                                            return 1;
+                                        }))))
 
                 .then(Commands.literal("region")
+                        .executes(NeonPaperUsage::region)
                         .then(Commands.literal("pos")
+                                .executes(NeonPaperUsage::region)
                                 .then(Commands.literal("1")
                                         .executes(ctx -> {
                                             CommandSender s = ctx.getSource().getBukkitSender();
@@ -247,7 +350,9 @@ public class NeonCommand {
                                             return pos(s, 1, p.getLocation().getBlockX(), p.getLocation().getBlockY(), p.getLocation().getBlockZ());
                                         })
                                         .then(Commands.argument("x", IntegerArgumentType.integer())
+                                                .executes(NeonPaperUsage::region)
                                                 .then(Commands.argument("y", IntegerArgumentType.integer())
+                                                        .executes(NeonPaperUsage::region)
                                                         .then(Commands.argument("z", IntegerArgumentType.integer())
                                                                 .executes(ctx -> pos(
                                                                         ctx.getSource().getBukkitSender(),
@@ -266,7 +371,9 @@ public class NeonCommand {
                                             return pos(s, 2, p.getLocation().getBlockX(), p.getLocation().getBlockY(), p.getLocation().getBlockZ());
                                         })
                                         .then(Commands.argument("x", IntegerArgumentType.integer())
+                                                .executes(NeonPaperUsage::region)
                                                 .then(Commands.argument("y", IntegerArgumentType.integer())
+                                                        .executes(NeonPaperUsage::region)
                                                         .then(Commands.argument("z", IntegerArgumentType.integer())
                                                                 .executes(ctx -> pos(
                                                                         ctx.getSource().getBukkitSender(),
@@ -277,6 +384,7 @@ public class NeonCommand {
                                                                 )))))))
 
                         .then(Commands.literal("save")
+                                .executes(NeonPaperUsage::region)
                                 .then(Commands.argument("name", StringArgumentType.word())
                                         .executes(ctx -> {
                                             CommandSender s = ctx.getSource().getBukkitSender();
@@ -295,6 +403,7 @@ public class NeonCommand {
                                         })))
 
                         .then(Commands.literal("delete")
+                                .executes(NeonPaperUsage::region)
                                 .then(Commands.argument("name", StringArgumentType.word())
                                         .suggests((ctx, builder) -> {
                                             Regions.snapshots()
@@ -341,6 +450,7 @@ public class NeonCommand {
                                         })))
 
                         .then(Commands.literal("paste")
+                                .executes(NeonPaperUsage::region)
                                 .then(Commands.argument("name", StringArgumentType.word())
                                         .suggests((ctx, builder) -> {
                                             Regions.snapshots()
@@ -387,8 +497,7 @@ public class NeonCommand {
         long startLoad = System.currentTimeMillis();
         for (int cx = Math.min(from.getX() >> 4, to.getX() >> 4); cx <= Math.max(from.getX() >> 4, to.getX() >> 4); cx++) {
             for (int cz = Math.min(from.getZ() >> 4, to.getZ() >> 4); cz <= Math.max(from.getZ() >> 4, to.getZ() >> 4); cz++) {
-                LevelChunk chunk = ((CraftWorld) player.getWorld()).getHandle().getChunk(cx, cz);
-                list.add(new SnappedEntry(new ChunkPos(cx, cz), chunk.snap()));
+                list.add(new SnappedEntry(new ChunkPos(cx, cz), ((CraftWorld) player.getWorld()).getHandle().getChunk(cx, cz).snap()));
             }
         }
         player.sendRichMessage("<#a1ceff>Loaded " + list.size() + " chunks in " + (System.currentTimeMillis() - startLoad) + "ms, now saving...");
@@ -483,7 +592,7 @@ public class NeonCommand {
 
             sender.sendMessage("");
             sender.sendRichMessage("<#a1ceff>Loaded " + snapshot.entries().size() + " chunks from " +
-                nbtFile.getName() + " in " + (System.currentTimeMillis() - startRead) + "ms");
+                    nbtFile.getName() + " in " + (System.currentTimeMillis() - startRead) + "ms");
         }
 
         World world = Bukkit.getWorld(snapshot.world());
@@ -503,8 +612,7 @@ public class NeonCommand {
                     dm.ticketStorage.addTicket(new Ticket<>(TicketType.REGEN, 0), pos);
                 lvl.setChunkAt(pos.x, pos.z, e.chunk());
             }
-        }
-        else {
+        } else {
             for (SnappedEntry e : snapshot.entries()) {
                 ChunkPos pos = e.pos();
                 ServerLevel.pendingRegeneration.put(pos.longKey, e.chunk);
@@ -524,7 +632,34 @@ public class NeonCommand {
             world.refreshChunk(pos.x, pos.z);
         }
 
-        return TrioValue.of(snapshot.from(), snapshot.to(), world);
+        BlockPos from = snapshot.from();
+        BlockPos to = snapshot.to();
+
+        Set<String> modes = Arrays.stream(ConfigVariables.CLEAR_ENTITIES_AFTER_REGEN.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .collect(Collectors.toSet());
+
+        if (modes.contains("none")) return TrioValue.of(from, to, world);
+        MinecraftServer.getServer().execute(() -> {
+            for (Entity e : lvl.getEntities(null, new AABB(from.getX(),
+                    (ConfigVariables.IGNORE_Y_AXIS_IN_REGION_CHECK ? world.getMinHeight() : to.getY()), from.getZ(), to.getX(),
+                    (ConfigVariables.IGNORE_Y_AXIS_IN_REGION_CHECK ? world.getMaxHeight() : from.getY() + 1), to.getZ()))) {
+                switch (e) {
+                    case Mob ignored when modes.contains("mobs") -> e.remove(Entity.RemovalReason.DISCARDED);
+                    case ItemEntity ignored when modes.contains("items") -> e.remove(Entity.RemovalReason.DISCARDED);
+                    case ServerPlayer ignored when modes.contains("players") ->
+                            e.remove(Entity.RemovalReason.DISCARDED);
+                    case ArmorStand ignored when modes.contains("armor_stands") ->
+                            e.remove(Entity.RemovalReason.DISCARDED);
+                    case EndCrystal ignored when modes.contains("crystals") -> e.remove(Entity.RemovalReason.DISCARDED);
+                    default -> {
+                    }
+                }
+            }
+        });
+
+        return TrioValue.of(from, to, world);
     }
 
     public static String format(long number) {

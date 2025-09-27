@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: vansencool <vansencool@gmail.com>
+Date: Sat, 27 Sep 2025 17:28:21 +0530
+Subject: [PATCH] Load map on server start
+
+
+diff --git a/net/minecraft/server/dedicated/DedicatedServer.java b/net/minecraft/server/dedicated/DedicatedServer.java
+index 98927d4a5fba2a0dcdb147ac10b82c3286ccdc6b..8c21aa0962efbe387292949eb0e5887a4a5a7411 100644
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -57,6 +57,8 @@ import net.minecraft.world.level.GameType;
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.entity.SkullBlockEntity;
+ import net.minecraft.world.level.storage.LevelStorageSource;
++import net.vansen.neonpaper.config.ConfigVariables;
++import net.vansen.neonpaper.regeneration.PendingChunks;
+ import org.slf4j.Logger;
+ 
+ public class DedicatedServer extends MinecraftServer implements ServerInterface {
+@@ -151,6 +153,8 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+         }
+         // Paper end - detect running as root
+ 
++        if (ConfigVariables.REGEN_MODE.equals("lazy") || ConfigVariables.REGEN_MODE.equals("lazy_background")) PendingChunks.load(); // NeonPaper
++
+         LOGGER.info("Loading properties");
+         DedicatedServerProperties properties = this.settings.getProperties();
+         if (this.isSingleplayer()) {

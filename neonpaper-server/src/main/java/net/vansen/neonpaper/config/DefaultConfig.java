@@ -2,7 +2,7 @@ package net.vansen.neonpaper.config;
 
 public class DefaultConfig {
 
-    public static String VERSION = "1.0.5";
+    public static String VERSION = "1.0.6";
 
     public static String CONFIG = """
         // NeonPaper Configuration
@@ -21,14 +21,36 @@ public class DefaultConfig {
             // THOUGH, IF THERE IS A ACTUAL BUG IN YOUR SERVER, YOU MAY NOT KNOW IT!
             // Recommended
             filter_out_invalid_logs = true
+        
+            // If true, specific entities in the region will be cleared after regenerating
+            // Options (comma-separated): none, all, mobs, items, players, all_players, armor_stands, crystals
+            //
+            // none         : No entities will be cleared
+            // all          : All entities (excluding players) will be cleared
+            // mobs         : All mobs will be cleared
+            // items        : All dropped items will be cleared
+            // players      : All players will be cleared
+            // all_players  : All entities, including players, will be cleared
+            // armor_stands : All armor stands will be cleared
+            // crystals     : All ender crystals will be cleared
+            //
+            // You can combine multiple options with commas, for example:
+            //   "mobs,items"   -> clears mobs and items
+            //   "items,players" -> clears items and players
+            //   "mobs,items,players,armor_stands,crystals" -> clears everything (same as all_players)
+            clear_entities_after_regen = "none"
+        
+            // If true, the Y axis will be ignored when checking if a player/entity is inside a region for regeneration
+            // Depends on your use case, usually its better to have this enabled
+            ignore_y_axis_in_region_check = true
         }
         
         performance {
             // If true, regenerating an region will add a ticket to all chunks in the region
             // AND, if your region is very large, and players are not around the entire region to load it, the chunks can be slow to load
             // This will make sure the chunks are loaded as fast as possible
-            // However, its only good if you regenerate regions often, otherwise its just not worth it
-            // Recommended if you have large region that are regenerated often
+            // Note: This does improve the initial chunk loading time
+            // Very recommended
             add_ticket_to_chunks = false
         
             // If true, caches the chunk data after loading it from disk, so it does not need to be loaded again, makes loading alot faster but uses more memory
