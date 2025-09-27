@@ -83,37 +83,24 @@ jobs:
           ENHANCEMENT=""
           BUG=""
           OTHER=""
-
+          
           while IFS= read -r line; do
-              [ -z "$line" ] && continue
-              message=$(echo "$line" | cut -d'|' -f1)
-              author=$(echo "$line" | cut -d'|' -f2)
-              commit=$(echo "$line" | cut -d'|' -f3)
-              echo "DEBUG: processing: message='$message', author='$author', commit='$commit'"
-              msg=$(echo "$message" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-              lower_msg=$(echo "$msg" | tr '[:upper:]' '[:lower:]')
-              case "$lower_msg" in
-                *breaking-change*|*breaking:*)
-                  echo "DEBUG: Found breaking"
-                  BREAKING+="- ${msg} by @${author} (commit ${commit})"$'\n'
-                  ;;
-                *feature*|*feat*|*add*)
-                  echo "DEBUG: Found feature"
-                  FEATURE+="- ${msg} by @${author} (commit ${commit})"$'\n'
-                  ;;
-                *improve*|*enhancement*|*enhance*)
-                  echo "DEBUG: Found improvement"
-                  ENHANCEMENT+="- ${msg} by @${author} (commit ${commit})"$'\n'
-                  ;;
-                *fix*|*bug*)
-                  echo "DEBUG: Found bug fix"
-                  BUG+="- ${msg} by @${author} (commit ${commit})"$'\n'
-                  ;;
-                *)
-                  echo "DEBUG: Found other"
-                  OTHER+="- ${msg} by @${author} (commit ${commit})"$'\n'
-                  ;;
-              esac
+          [ -z "$line" ] && continue
+            message=$(echo "$line" | cut -d'|' -f1)
+            author=$(echo "$line" | cut -d'|' -f2)
+            commit=$(echo "$line" | cut -d'|' -f3)
+          
+            msg=$(echo "$message" | sed 's/\[[^]]*\]//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            lower_msg=$(echo "$message" | tr '[:upper:]' '[:lower:]')
+          
+            matched=false
+          
+            [[ "$lower_msg" =~ breaking-change|breaking: ]] && { BREAKING+="- ${msg} by @${author} (commit ${commit})"$'\n'; matched=true; }
+            [[ "$lower_msg" =~ feat|feature|add ]] && { FEATURE+="- ${msg} by @${author} (commit ${commit})"$'\n'; matched=true; }
+            [[ "$lower_msg" =~ improve|enhancement|enhance ]] && { ENHANCEMENT+="- ${msg} by @${author} (commit ${commit})"$'\n'; matched=true; }
+            [[ "$lower_msg" =~ fix|bug ]] && { BUG+="- ${msg} by @${author} (commit ${commit})"$'\n'; matched=true; }
+          
+            $matched || OTHER+="- ${msg} by @${author} (commit ${commit})"$'\n'
           done < <(git log $RANGE --pretty=format:"%s|%an|%h%n")
 
           echo "DEBUG: Categories after processing:"
@@ -125,10 +112,10 @@ jobs:
 
           OUTPUT="## What's Changed"
           [ -n "$BREAKING" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Breaking Changes 🛠"$'\n'"${BREAKING}"
-          [ -n "$FEATURE" ] && OUTPUT="${OUTPUT}"$'\n\n'"### New Features 🎉"$'\n'"${FEATURE}"
+          [ -n "$FEATURE" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Exciting New Features 🎉"$'\n'"${FEATURE}"
           [ -n "$ENHANCEMENT" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Improved things 🔨"$'\n'"${ENHANCEMENT}"
           [ -n "$BUG" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Bug fixes 🐛"$'\n'"${BUG}"
-          [ -n "$OTHER" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Other Changes"$'\n'"${OTHER}"
+          [ -n "$OTHER" ] && OUTPUT="${OUTPUT}"$'\n\n'"### Other Changes 🔄"$'\n'"${OTHER}"
 
           echo -e "$OUTPUT" > CHANGELOG.md
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT

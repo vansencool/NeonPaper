@@ -224,10 +224,6 @@ public class NeonTestingCommand {
             player.sendRichMessage("<gray>Per-chunk time: <white>" + String.format("%.3f", (double) totalRestore.get() / runs / chunksToUse.size() / 1_000_000.0) + "</white> ms");
             player.sendRichMessage("");
             player.sendRichMessage("<gray>Total time: <white>" + String.format("%.2f", totalMs) + "</white> ms");
-
-            for (LevelChunk chunk : chunksToUse) {
-                dm.removeRegionTicket(TicketType.REGEN, chunk.getPos(), 33, Unit.INSTANCE);
-            }
         });
     }
 

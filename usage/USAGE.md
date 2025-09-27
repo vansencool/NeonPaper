@@ -1,46 +1,78 @@
-## How to Use + Configuration
+# How to Use + Configuration
 
-### Usage
-
-**/neonpaper reload**
-- Reloads configuration and restarts auto-regeneration
-
-**/neonpaper inside <name>**
-- Checks if player is inside a region
-- `name` = region name
-
-**/neonpaper flushmap**
-- Flushes pending chunks to disk
-
-**/neonpaper loadmap**
-- Loads pending chunks from disk
-
-**/neonpaper tpcenter <name>**
-- Teleports player to region center
-- `name` = region name
-
-**/neonpaper insideregions**
-- Lists all regions player is currently inside (clickable entries)
-
-**/neonpaper region pos 1|2 [x] [y] [z]**
-- Sets position 1 or 2 for defining a region
-- Optional X-Y-Z coordinates, otherwise uses player location
-
-**/neonpaper region save <name>**
-- Saves a region using positions 1 and 2
-- `name` = region name
-
-**/neonpaper region delete <name>**
-- Deletes a saved region (snapshot + metadata)
-- `name` = region name
-
-**/neonpaper region paste <name>**
-- Pastes the specified region (aka regeneration)
-- `name` = region name
+## NeonPaper Commands Usage
 
 ---
 
-### Configuration
+**You can use** `/neonpaper help` **to see a list of commands.**
+
+### **/neonpaper reload**
+- Reloads the plugin configuration.
+- Restarts **AutoRegeneration** automatically.
+
+---
+
+### **/neonpaper inside <name>**
+- Checks whether the player is currently **inside a specific region**.
+- `<name>`: Name of the region.
+- If outside, provides a **clickable teleport** to the center of the region.
+
+---
+
+### **/neonpaper insideregions**
+- Lists all regions the player is currently inside.
+- Each region name is **clickable** to teleport to its center.
+
+---
+
+### **/neonpaper map flushmap**
+- Forces pending chunks to be **flushed to disk**.
+- Useful for saving map changes manually.
+
+### **/neonpaper map loadmap**
+- Loads pending chunks from disk.
+- Useful when restoring map data after a server restart.
+
+---
+
+### **/neonpaper teleportation <name> pos|center**
+- Teleports the player to a region.
+- `<name>`: Name of the region.
+- `pos`: Teleports to `pos1` or `pos2` of the region.
+- `center`: Teleports to the **center** of the region.
+
+---
+
+### **/neonpaper region pos <1|2> [x] [y] [z]**
+- Sets **position 1 or 2** for defining a region.
+- Optional coordinates `[x y z]`; if omitted, uses the player's **current location**.
+- Positions are used for saving or regenerating regions later.
+
+---
+
+### **/neonpaper region save <name>**
+- Saves the region defined by **positions 1 and 2**.
+- `<name>`: Name of the region snapshot.
+- Automatically stores snapshot + metadata for regeneration.
+
+---
+
+### **/neonpaper region delete <name>**
+- Deletes a saved region snapshot.
+- Removes both the **snapshot file** and **metadata**.
+- `<name>`: Name of the region.
+
+---
+
+### **/neonpaper region paste <name>**
+- Pastes (regenerates) the saved region at its original location.
+- `<name>`: Name of the region snapshot.
+
+### Notes
+- Many commands support **clickable suggestions** in chat, or execution via clicking.
+- Use common sense if you are struggling with commands :)
+
+## Configuration
 
 **commands**
 - `testing_command` – Enables a testing/benchmarking command for development purposes only. Default: `false`
@@ -63,11 +95,11 @@
 - `flush_interval` – Only used in `lazy_background` mode. Interval in seconds to flush the chunk map to disk. Default: `60`
 - `save_at_stop_lazy_background` – Only used in `lazy_background` mode. When `true`, saves the chunk map on server stop to reduce corruption risk. Default: `true`
 
-## Auto Regeneration
+### Auto Regeneration
 
 Each arena can have its own regeneration settings, defined under `regeneration.arena.<name>`.
 
-### Options per arena
+#### Options per arena
 
 **enabled**
 - Whether auto regeneration is active for this arena.
