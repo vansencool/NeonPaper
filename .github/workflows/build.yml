@@ -91,7 +91,7 @@ jobs:
             commit=$(echo "$line" | cut -d'|' -f3)
             
             msg=$(echo "$message" | sed 's/\[[^]]*\]//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            lower_msg=$(echo "$msg" | tr '[:upper:]' '[:lower:]')
+            lower_msg=$(echo "$message" | tr '[:upper:]' '[:lower:]')
             
             matched=false
             
